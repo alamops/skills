@@ -62,13 +62,9 @@ The CLI auto-detects which agents you have installed and writes to the right con
 
 ## Skills
 
-> No skills published yet — this repo was just bootstrapped. Watch the repo or check back soon.
-
-When skills land, they'll appear in the table below, grouped by domain.
-
 | Skill | Description | Tags |
 | --- | --- | --- |
-| _coming soon_ | | |
+| [`code-review`](./skills/code-review) | Read-only PR / diff review with structured findings — bugs, security (tenant isolation, authz, atomicity, retry safety, multi-step flow completeness), performance (in-memory aggregation, sequential fan-out), consistency, and blast-radius gaps | `review`, `quality`, `security`, `performance` |
 
 ## Create your own skill
 
