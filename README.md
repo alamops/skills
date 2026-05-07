@@ -64,11 +64,11 @@ The CLI auto-detects which agents you have installed and writes to the right con
 
 | Skill | Description | Tags |
 | --- | --- | --- |
-| [`code-review`](./skills/code-review) | Read-only PR / diff review that returns structured findings | `review`, `quality`, `security`, `performance` |
+| [`code-review`](./skills/code-review) | Read-only review of any change source — PR, branch diff, working tree, recent commits, or code from the conversation | `review`, `quality`, `security`, `performance` |
 
 ### [`code-review`](./skills/code-review)
 
-A thorough, read-only review of a pull request or pending changes — produces structured findings, never edits code. Coverage:
+A thorough, read-only review of whatever change source you point it at — a pull request, a `git diff` against a base branch, uncommitted edits in your working tree, recent commits, or code that was just produced in the conversation. Produces structured findings, never edits code. Coverage:
 
 - **Bugs** — logic errors, edge cases, error-handling gaps.
 - **Security** — tenant isolation, authorization gaps, atomicity / TOCTOU, retry safety, explicit timeouts, multi-step flow completeness, orphaned-state cleanup, source-of-truth verification.
@@ -84,40 +84,7 @@ Install just this skill into any compatible agent:
 npx skills add alamops/skills --skill code-review
 ```
 
-Trigger it by asking any agent (or Claude Code with the plugin installed) for a "code review", "PR review", "diff review", or "feedback on pending changes" — the skill auto-loads from the description.
-
-## Create your own skill
-
-Skills here are designed to be forked. To add one (whether for upstream contribution or your own fork):
-
-```sh
-git clone https://github.com/alamops/skills && cd skills
-cp -r template skills/my-new-skill
-$EDITOR skills/my-new-skill/SKILL.md
-```
-
-Edit the YAML frontmatter — `name` should match the folder name, and `description` should clearly state **what the skill does** and **when the agent should invoke it**. The description is the only field the agent sees before deciding to load the skill, so it's the most important line in the file.
-
-```yaml
----
-name: my-new-skill
-description: Generates X when the user is doing Y. Use whenever the conversation mentions Z.
----
-
-# My new skill
-
-Instructions the agent follows when this skill is active...
-```
-
-Optional subdirectories the spec recognizes inside a skill folder:
-
-| Folder | Purpose |
-| --- | --- |
-| `scripts/` | Executable helpers the skill can run |
-| `references/` | Supporting docs the skill loads on demand |
-| `assets/` | Templates, fixtures, sample data |
-
-Both Claude Code and `npx skills` discover new skills automatically — no manifest edits required.
+Trigger it by asking any agent (or Claude Code with the plugin installed) for a "code review", "PR review", "diff review", "feedback on pending or recent changes", or "review the code we just wrote" — the skill auto-loads from the description.
 
 ## Project structure
 
@@ -136,25 +103,6 @@ Both Claude Code and `npx skills` discover new skills automatically — no manif
 ```
 
 A single umbrella plugin (`alamops-skills`) bundles every folder under `skills/`. Adding a new skill is one operation — drop a new folder in `skills/`, and both delivery channels pick it up.
-
-## Contributing
-
-Pull requests are welcome. Please:
-
-1. Keep each skill **single-purpose** — one job, done well.
-2. Write descriptions in **second person, action-first** (`"Generates X..."`, not `"This skill generates..."`).
-3. Test your skill in at least one agent before opening a PR.
-4. Validate the marketplace before pushing: `claude plugin validate .`
-
-Bug reports, feedback, and skill suggestions are also welcome via [issues](https://github.com/alamops/skills/issues).
-
-## References
-
-- [Agent Skills open standard](https://agentskills.io/specification) — the cross-agent spec for `SKILL.md`
-- [Anthropic Agent Skills overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview)
-- [Claude Code plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)
-- [`npx skills` CLI](https://github.com/vercel-labs/skills) — the open agent skills tool
-- [anthropics/skills](https://github.com/anthropics/skills) — Anthropic's reference skill collection
 
 ## License
 

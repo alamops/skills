@@ -1,11 +1,24 @@
 ---
 name: code-review
-description: Performs a thorough, read-only code review on a pull request or pending changes — flags bugs, security issues (tenant isolation, authz gaps, atomicity, retry safety, multi-step flow completeness), performance issues (in-memory aggregation, sequential fan-out, partial-period comparisons), consistency issues, and blast-radius gaps. Returns structured findings (category, severity, file, line, suggestion) without modifying any code. Use whenever the user asks for a code review, PR review, diff review, or feedback on pending changes.
+description: Performs a thorough, read-only code review on any source of changes — a pull request, a git diff, uncommitted edits in the working tree, recent commits on the current branch, or code that was just produced or discussed in the conversation. Flags bugs, security issues (tenant isolation, authz gaps, atomicity, retry safety, multi-step flow completeness), performance issues (in-memory aggregation, sequential fan-out, partial-period comparisons), consistency issues, and blast-radius gaps. Returns structured findings (category, severity, file, line, suggestion) without modifying any code. Use whenever the user asks for a code review, PR review, diff review, feedback on pending or recent changes, or a critique of code just written in this session.
 ---
 
 # Code review
 
 A read-only review skill: produce structured findings, never edit code. Tone: friendly coding teammate, concise.
+
+## Pick the review target
+
+Before reviewing, identify *what* you are reviewing. The skill applies the same rigor regardless of source — only the discovery step changes:
+
+| Trigger | How to gather the diff |
+| --- | --- |
+| User names a PR (URL or number) | Fetch PR metadata + diff (e.g., `gh pr view <n>`, `gh pr diff <n>`). |
+| User asks to review "this branch" / "my changes" / "what I'm about to push" | `git status`, `git diff <base>...HEAD`, `git log <base>..HEAD --stat`. Default `<base>` to `origin/main` (or `origin/master`); fall back to `main`. |
+| User asks to review uncommitted / pending / staged work | `git status`, `git diff` (unstaged) and `git diff --cached` (staged). |
+| User asks to review "recent commits" / "the last commit" | `git log -n <N> --stat`, `git show <sha>` for each. |
+| User asks to review code we just wrote / discussed in this conversation | Use the in-conversation edits and tool results. Re-read the modified files from disk if it has been a while or if context may have been compacted. |
+| Ambiguous ("review my code") | Ask once: "Review the open PR, the uncommitted changes in your working tree, the diff against `main`, recent commits, or the code we just wrote together?" Then proceed. |
 
 ## Rules
 
@@ -18,7 +31,8 @@ A read-only review skill: produce structured findings, never edit code. Tone: fr
 
 ## Review efficiency
 
-- **Shallow-first.** Read PR metadata, title, description, linked issues, and changed-file stats *before* requesting full diffs or file contents.
+- **Shallow-first.** Start with the cheapest signal: PR title/description/linked issues, commit messages, `git status`, or the user's stated intent in the conversation. Look at full diffs and file contents *after* you know what changed and why.
+- **Use the right scope.** Don't review files that weren't touched. For working-tree reviews, the scope is `git diff` + `git diff --cached`; for branch reviews, `git diff <base>...HEAD`; for in-conversation reviews, the files actually edited this session.
 - **Skip artifacts.** If a changed file looks generated, bundled, or minified, review the source-of-truth file instead.
 - **Verify before recommending.** If web search is available, confirm current stable versions, API shapes, and best practices before suggesting a library, flag, or pattern.
 
@@ -28,7 +42,8 @@ Copy this into your response and check items off as you progress:
 
 ```
 Review progress:
-- [ ] PR metadata read (title, description, linked issues, file stats)
+- [ ] Review target identified (PR / branch diff / working tree / recent commits / in-conversation edits)
+- [ ] Intent gathered (PR description, commit messages, conversation context, or stated goal)
 - [ ] All changed files reviewed
 - [ ] Security swept (tenant isolation, authz, atomicity, retry, flow completeness, orphaned state)
 - [ ] Performance swept (in-memory aggregation, fan-out, duplicate scans, period comparisons)
@@ -65,7 +80,7 @@ Clean, readable, maintainable code. Names that describe intent.
 - **Sequential fan-out.** Does one event trigger N sequential async operations in a `for`-loop? Use `Promise.allSettled` with bounded concurrency. Hoist invariants out of loops.
 
 ### Testing
-Are tests adequate? Do they cover edge cases, error paths, and the new behavior introduced in this PR?
+Are tests adequate? Do they cover edge cases, error paths, and the new behavior introduced in this change?
 
 ### Documentation
 Are non-obvious decisions, invariants, or workarounds documented where a future reader will need them?
@@ -97,12 +112,13 @@ The highest-impact bugs are not in the code that was changed — they are in the
 
 ## Workflow
 
-1. Read the PR title, description, and linked issues. Note the stated intent.
-2. Skim the changed-file list and line counts. Identify the most-impacted files.
-3. For each changed file, walk the diff and apply the categories above.
-4. Trace blast radius for every meaningful change.
-5. Log each issue as a finding (format below).
-6. End with an overall summary.
+1. **Identify the target** using the table above. If unclear, ask once.
+2. **Gather intent.** PR description + linked issues, commit messages, the user's stated goal, or the conversation thread that produced the code. Note what the change is *trying* to do — half of code review is checking whether the change actually accomplishes its goal.
+3. **Skim the changed-file list and line counts.** Identify the most-impacted files.
+4. **For each changed file, walk the diff** and apply the categories above. When reviewing in-conversation edits, re-read the file from disk — don't trust your memory of the patch.
+5. **Trace blast radius** for every meaningful change.
+6. **Log each issue** as a finding (format below).
+7. **End with an overall summary.**
 
 ## Finding format
 
