@@ -61,23 +61,23 @@ Clean, readable, maintainable code. Names that describe intent.
 ### Security
 
 - **Injection / XSS / CSRF.**
-- **Tenant isolation.** Do queries on tenant-scoped tables include the org/company/team filter? Are RLS-bypassing queries scoped? Can a user from one tenant affect another tenant's resources?
+- **Tenant isolation.** Do operations on tenant-scoped resources include the org/company/team filter? Are privileged or unscoped code paths properly bounded? Can a user from one tenant read or affect another tenant's resources?
 - **Authorization gaps.** Are destructive operations (delete, revoke, disconnect, status change) guarded by ownership checks before executing?
-- **Information disclosure.** Do error responses leak stack traces, DB errors, or internal URLs? Is raw `error.message` returned to clients? Are dynamic values HTML-escaped before `innerHTML`?
-- **Atomicity.** Are security-critical state transitions (OAuth state consumption, lock claims) atomic? Or do they SELECT-then-UPDATE with a TOCTOU window?
+- **Information disclosure.** Do error responses leak stack traces, internal errors, or internal URLs? Is raw error detail returned to clients? Are dynamic values escaped before being rendered as markup?
+- **Atomicity.** Are security-critical state transitions (OAuth state consumption, lock claims) atomic? Or do they read-then-write with a TOCTOU window?
 - **Timeouts.** Do all external HTTP calls have explicit timeouts?
 - **Retry safety.** Are non-idempotent operations (writes, creates, side-effecting tool calls) retried only on connection-level errors — never on server errors?
-- **Stateless runtime assumptions.** Does the code rely on module-level state, in-memory queues, or `setTimeout` / `setInterval` for durable state in a serverless/edge environment? These are lost between invocations. Does service-worker code make authenticated requests without explicit token management?
+- **Stateless runtime assumptions.** Does the code rely on module-level state, in-memory queues, or background timers for durable state in a serverless/edge environment? These are lost between invocations. Does service-worker code make authenticated requests without explicit token management?
 - **Multi-step flow completeness.** Do flows spanning multiple requests / redirects / pages (auth, payment, invitation) have a handler at every redirect destination? Does every temp token / authorization code have a consuming endpoint? Do callbacks check authorization, membership, *and* invitation — not just the happy-path exchange?
-- **Orphaned state cleanup.** When an early step creates durable state (auth sessions, tokens, DB rows) and a later step fails, is the early state rolled back? On password change, are other sessions invalidated? On feature disablement, are dependent records cleaned up?
-- **Source-of-truth verification.** Is auth checked against the actual provider (`getUser()`, token validation) — not proxies like cookie-name existence, header presence, or cached state? Does route protection verify assurance levels (post-MFA) and app-layer authorization (org membership, role)?
+- **Orphaned state cleanup.** When an early step creates durable state (auth sessions, tokens, records) and a later step fails, is the early state rolled back? On password change, are other sessions invalidated? On feature disablement, are dependent records cleaned up?
+- **Source-of-truth verification.** Is auth checked against the actual provider (a real session/token validation call) — not proxies like cookie-name existence, header presence, or cached state? Does route protection verify assurance levels (post-MFA) and app-layer authorization (org membership, role)?
 
 ### Performance
 
-- **In-memory aggregation.** Are analytics / reporting / dashboard queries loading raw rows into JS memory to aggregate? Use SQL `GROUP BY` / `COUNT` / `SUM` / window functions instead. Fetching thousands of rows for client-side aggregation is a critical perf bug.
-- **Duplicate scans.** Do multiple functions scan the same table slice (same org, same date window) independently? Share one query or pre-aggregate.
+- **In-memory aggregation.** Are analytics / reporting / dashboard endpoints loading large raw datasets into memory just to compute totals, counts, or groupings? Push aggregation to the data layer (using its native aggregation primitives) instead of materializing thousands of records. Fetching huge result sets to derive a summary is a critical perf bug.
+- **Duplicate scans.** Do multiple functions fetch the same data slice (same org, same date window) independently? Share one fetch or pre-aggregate.
 - **Partial vs. full period comparisons.** Are trend calculations comparing a partial (in-progress) period against a full (completed) prior period? Misleading metrics.
-- **Sequential fan-out.** Does one event trigger N sequential async operations in a `for`-loop? Use `Promise.allSettled` with bounded concurrency. Hoist invariants out of loops.
+- **Sequential fan-out.** Does one event trigger N sequential async operations in a loop? Use bounded concurrency / parallelism primitives instead of awaiting each call. Hoist invariants out of loops.
 
 ### Testing
 Are tests adequate? Do they cover edge cases, error paths, and the new behavior introduced in this change?
@@ -90,13 +90,13 @@ Is failure handled, or punted upward without context?
 
 ### Consistency
 
-- **Enum / constant alignment.** Do UI filter values, dropdown options, and status enums match what the backend actually writes? If a new `targetType`, status, or category was added in backend code, are all corresponding frontend lists updated?
+- **Enum / constant alignment.** Do UI filter values, dropdown options, and status enums match what the backend actually writes? If a new status, type, or category was added in backend code, are all corresponding frontend lists updated?
 - **Data-source consistency.** Do different pages showing the same concept (e.g., "active users", "pending invitations") use the same filters and conditions, or do some include/exclude states differently?
-- **Backend → frontend contract.** When the backend returns pagination metadata (`cursor`, `hasMore`, `totalPages`), does the frontend consume it? Are backend capabilities (sorting, filtering, cursor pagination) wired through to the UI?
+- **Backend → frontend contract.** When the backend returns pagination, sorting, or filtering metadata, does the frontend consume it? Are backend capabilities wired through to the UI, or do they get dropped at the boundary?
 - **Redundant event paths.** In real-time flows, does one logical event cause the same mutation twice? (e.g., server broadcasts a counter update *and* the client increments optimistically — double-counting.) Each metric needs exactly one source of truth.
-- **Validation consistency.** Do sibling endpoints (GET/POST/PATCH/DELETE on the same resource) use the same approach (e.g., all Zod), or does one use raw type assertions? Are validations semantically correct (e.g., hour values 0–23, not just `\d{2}`)?
+- **Validation consistency.** Do sibling endpoints (GET/POST/PATCH/DELETE on the same resource) use the same validation approach, or does one fall back to raw type assertions? Are validations semantically correct (e.g., hour values 0–23, not just two digits)?
 - **Single source of truth for business rules.** Is the same rule (password requirements, access criteria) implemented in multiple places (client indicator + server schema, frontend form + API validation)? Do they enforce identical constraints? Can the UI show "valid" while the API rejects?
-- **Mutual-exclusion / co-dependency.** Do schemas marking fields optional enforce that at least one of a mutually-exclusive group is present? (e.g., password OR `oauthProvider` required — not both optional with no refinement.) Look for Zod `.refine()` or equivalent.
+- **Mutual-exclusion / co-dependency.** Do schemas marking fields optional enforce that at least one of a mutually-exclusive group is present? (e.g., password OR an OAuth provider required — not both optional with no refinement.) Look for cross-field validation / refinement.
 
 ### Blast radius (CRITICAL)
 
@@ -154,36 +154,29 @@ Fields:
 ### Examples
 
 ```markdown
-### [critical] Tenant filter missing from `getActiveSubscriptions`
+### [critical] Missing tenant scope on resource listing
 
 - **Category:** Security
-- **File:** `app/api/subscriptions/route.ts:42`
+- **File:** `path/to/listing-handler:LINE`
 
-The query selects rows where `status = 'active'` without filtering by `orgId`. Any authenticated user can read every other org's subscriptions — a tenant-isolation breach.
+The listing operation returns records for all tenants — it neither accepts nor applies a tenant identifier. Any authenticated user can read records belonging to any other tenant, a tenant-isolation breach.
 
 **Suggestion:**
 
-Add the org filter at the query layer, not in post-fetch JS:
-
-\`\`\`ts
-.where(and(
-  eq(subscriptions.orgId, session.orgId),
-  eq(subscriptions.status, 'active'),
-))
-\`\`\`
+Require the caller to pass the tenant scope, resolved from the authenticated session at the request boundary — not deep inside callers, where it is easy to forget.
 ```
 
 ```markdown
-### [high] Sequential fan-out in invitation broadcast
+### [high] Sequential fan-out in notification broadcast
 
 - **Category:** Performance
-- **File:** `lib/invitations/notify.ts:18`
+- **File:** `path/to/broadcast-handler:LINE`
 
-The handler iterates over `invitees` and `await`s each `sendEmail` call serially. For an org of 200 users, this is ~200× slower than necessary and risks exceeding the function's wall-clock timeout.
+The handler iterates over recipients and awaits each external call serially. For a list of N recipients, this is ~N× slower than necessary and risks exceeding the function's wall-clock timeout.
 
 **Suggestion:**
 
-Use bounded parallelism — `Promise.allSettled` with a concurrency limit (e.g., `p-limit(10)`). Hoist the email-template build outside the loop so it's not recomputed per invitee.
+Use bounded parallelism — fire requests concurrently with a concurrency limit. Hoist invariants (template / payload construction) outside the loop so they aren't recomputed per recipient.
 ```
 
 ## Overall summary
