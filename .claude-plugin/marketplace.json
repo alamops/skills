@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "alamops-skills",
+  "description": "Alamo's personal Agent Skills — Claude Code plugin + npx skills compatible",
+  "owner": {
+    "name": "Alamo Saravali",
+    "email": "alamo@alamoweb.com.br"
+  },
+  "plugins": [
+    {
+      "name": "alamops-skills",
+      "source": "./",
+      "description": "Bundle of all Alamo's agent skills (auto-discovered from ./skills/)",
+      "version": "0.1.0",
+      "homepage": "https://github.com/alamops/skills",
+      "repository": "https://github.com/alamops/skills",
+      "license": "MIT",
+      "keywords": ["skills", "agent-skills", "claude-code"]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "alamops-skills",
+  "description": "Alamo's personal Agent Skills",
+  "version": "0.1.0",
+  "author": {
+    "name": "Alamo Saravali",
+    "email": "alamo@alamoweb.com.br"
+  },
+  "homepage": "https://github.com/alamops/skills",
+  "repository": "https://github.com/alamops/skills",
+  "license": "MIT"
+}
