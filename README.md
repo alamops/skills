@@ -65,6 +65,7 @@ The CLI auto-detects which agents you have installed and writes to the right con
 | Skill | Description | Tags |
 | --- | --- | --- |
 | [`code-review`](./skills/code-review) | Read-only review of any change source — PR, branch diff, working tree, recent commits, or code from the conversation | `review`, `quality`, `security`, `performance` |
+| [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
 
 ### [`code-review`](./skills/code-review)
 
@@ -85,6 +86,32 @@ npx skills add alamops/skills --skill code-review
 ```
 
 Trigger it by asking any agent (or Claude Code with the plugin installed) for a "code review", "PR review", "diff review", "feedback on pending or recent changes", or "review the code we just wrote" — the skill auto-loads from the description.
+
+### [`to-prd`](./skills/to-prd)
+
+A senior-CPO collaborator that turns any combination of inputs — a feature/product description, the conversation thread, a small set of provided files, attached media, linked docs, or an entire repository — into a complete Product Requirements Document. Works in two modes: **forward** (PRD for something you're about to build, repo as enrichment) and **reverse** (PRD for something already built, repo as the primary source). It clarifies before drafting — surfacing missing personas, undefined success criteria, unclear flows, ambiguous scope, and unstated constraints — then writes a structured Markdown PRD covering:
+
+- **Executive summary, problem, goals & non-goals.**
+- **Personas, scenarios, and user journeys.**
+- **Functional requirements** — numbered, testable, with flows and business rules.
+- **Non-functional requirements** — performance, security, privacy, scalability, reliability, usability, observability.
+- **Timeline & milestones** — phased delivery with exit criteria.
+- **Success metrics** — primary KPIs with baselines and targets, plus feedback mechanisms.
+- **Risks & mitigation** — product, delivery, technical, operational, with owners.
+- **Blast-radius & cross-feature impact** — affected features, integrations, downstream systems, data assumptions.
+- **Stakeholders** — RACI roles.
+- **Assumptions and open questions** — captures anything the user declined to clarify, plus any inferred behavior in reverse mode.
+- **Appendices and glossary.**
+
+The PRD is saved to `docs/<unique-name>.md`. In forward mode the skill stays shallow on the repo (enrichment only); in reverse mode it walks user-visible entry points and behavior at the product layer. It never modifies code.
+
+Install just this skill into any compatible agent:
+
+```sh
+npx skills add alamops/skills --skill to-prd
+```
+
+Trigger it by asking any agent (or Claude Code with the plugin installed) to "write a PRD", "draft a product requirements doc", "create a feature spec", "scaffold a PRD for X", or "reverse-engineer a PRD from this repo / these files" — the skill auto-loads from the description.
 
 ## Project structure
 
