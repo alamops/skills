@@ -64,7 +64,27 @@ The CLI auto-detects which agents you have installed and writes to the right con
 
 | Skill | Description | Tags |
 | --- | --- | --- |
-| [`code-review`](./skills/code-review) | Read-only PR / diff review with structured findings — bugs, security (tenant isolation, authz, atomicity, retry safety, multi-step flow completeness), performance (in-memory aggregation, sequential fan-out), consistency, and blast-radius gaps | `review`, `quality`, `security`, `performance` |
+| [`code-review`](./skills/code-review) | Read-only PR / diff review that returns structured findings | `review`, `quality`, `security`, `performance` |
+
+### [`code-review`](./skills/code-review)
+
+A thorough, read-only review of a pull request or pending changes — produces structured findings, never edits code. Coverage:
+
+- **Bugs** — logic errors, edge cases, error-handling gaps.
+- **Security** — tenant isolation, authorization gaps, atomicity / TOCTOU, retry safety, explicit timeouts, multi-step flow completeness, orphaned-state cleanup, source-of-truth verification.
+- **Performance** — in-memory aggregation, sequential fan-out, duplicate scans, partial-vs-full period comparisons.
+- **Consistency** — enum / constant alignment, validation parity, business-rule duplication, backend → frontend contract.
+- **Blast radius** — callers, sibling code paths, downstream flows, stale state, retry assumptions.
+
+Every finding is tagged with `category`, `severity`, `file_path`, `line_number`, `description`, and `suggestion`. Each review ends with counts-by-severity, top-3 must-fix items, and an explicit verdict (`approve` / `request changes` / `comment`).
+
+Install just this skill into any compatible agent:
+
+```sh
+npx skills add alamops/skills --skill code-review
+```
+
+Trigger it by asking any agent (or Claude Code with the plugin installed) for a "code review", "PR review", "diff review", or "feedback on pending changes" — the skill auto-loads from the description.
 
 ## Create your own skill
 
