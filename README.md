@@ -66,6 +66,8 @@ The CLI auto-detects which agents you have installed and writes to the right con
 | --- | --- | --- |
 | [`code-review`](./skills/code-review) | Read-only review of any change source — PR, branch diff, working tree, recent commits, or code from the conversation | `review`, `quality`, `security`, `performance` |
 | [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
+| [`business-review`](./skills/business-review) | Analyzes a product/business from its public-facing materials, generates and ranks buyer personas, recommends an ICP, pressure-tests positioning and pricing, saves strategy artifacts to `docs/` | `gtm`, `personas`, `icp`, `positioning`, `strategy` |
+| [`rpg-persona`](./skills/rpg-persona) | Hard buyer-persona roleplay with a coaching block after every reply — pressure-tests pitches, messaging, and pricing, saves the transcript and lessons to `docs/ROLEPLAY_NOTES.md`. **Run [`business-review`](./skills/business-review) first** so the roleplay uses real, ranked personas. | `gtm`, `sales`, `roleplay`, `coaching`, `objection-handling` |
 
 ### [`code-review`](./skills/code-review)
 
@@ -112,6 +114,50 @@ npx skills add alamops/skills --skill to-prd
 ```
 
 Trigger it by asking any agent (or Claude Code with the plugin installed) to "write a PRD", "draft a product requirements doc", "create a feature spec", "scaffold a PRD for X", or "reverse-engineer a PRD from this repo / these files" — the skill auto-loads from the description.
+
+### [`business-review`](./skills/business-review)
+
+A founder-grade GTM analyst that reads a product's public-facing materials (landing page, pricing, onboarding, docs, app/UI, demos), separates marketing language from real buyer value, and produces a strategy package someone could act on this week. It generates 5–8 concrete buyer personas (concrete enough to DM, not "SMB owner"), ranks them across abundance / pain / urgency / willingness-to-pay / retention / strategic leverage, and explicitly distinguishes "most abundant" from "best ICP." Then it pressure-tests the recommendation against alternatives, pricing logic, and friction — and proposes section-by-section changes to messaging, landing page, onboarding, demo strategy, and product experience. Prefers truth over flattery.
+
+Deliverables (saved under `docs/` with canonical filenames):
+
+- `CLIENT_PERSONAS.md` — full persona dossiers using a fixed template.
+- `ICP_ANALYSIS.md` — ranking matrix, canonical roles, pressure-test results, primary/secondary/weak-fit recommendation.
+- `POSITIONING_RECOMMENDATIONS.md` — wrong-vs-right battlefield, headline candidates, section-by-section landing-page changes.
+- `PRODUCT_EXPERIENCE_RECOMMENDATIONS.md` — onboarding, time-to-value, friction, demo, proof, ranked impact × effort.
+- `OUTREACH_DRAFTS.md` (optional) — LinkedIn, cold email, social DM for the primary ICP.
+
+Install just this skill:
+
+```sh
+npx skills add alamops/skills --skill business-review
+```
+
+Trigger phrases: "analyze my business", "generate buyer personas", "find my ICP", "pressure-test my positioning", "review my landing page positioning", "build a GTM strategy doc."
+
+### [`rpg-persona`](./skills/rpg-persona)
+
+> **Recommended: run [`business-review`](./skills/business-review) first.** `rpg-persona` is most useful when it's roleplaying a *real, ranked* persona from your strategy work — not a generic skeptic. If `docs/CLIENT_PERSONAS.md` and `docs/ICP_ANALYSIS.md` exist (which `business-review` produces), this skill auto-picks the strongest skeptical persona and grounds objections in the actual product. Without those docs, the skill will ask you to define the persona before starting, which is slower and less rigorous.
+
+A two-voice sales-pressure-test skill: a **skeptical buyer** who refuses to make the conversation easy, plus a **coach** that explains, after every in-character reply, what landed, what missed, which objection was triggered, the buying signals you missed, and what to do next. The buyer demands numbers, rejects vague language ("AI-powered", "10x faster"), pushes on differentiation, pricing logic, switching cost, decision path, and proof — and only closes when you've earned at least three of: differentiation, pricing logic, friction, trust, urgency, decision path.
+
+When the session ends ("end roleplay" / "stop"), the full transcript, coaching summary, strategic lessons, and recommended changes save to `docs/ROLEPLAY_NOTES.md`.
+
+Install just this skill:
+
+```sh
+npx skills add alamops/skills --skill rpg-persona
+```
+
+Trigger phrases: "roleplay a buyer", "simulate a sales call", "practice my pitch", "pressure-test my message", "play a skeptical CTO", "objection drill."
+
+#### Recommended GTM workflow
+
+1. **`business-review`** — analyze the product, generate and rank personas, produce `docs/CLIENT_PERSONAS.md` + `docs/ICP_ANALYSIS.md` + positioning docs.
+2. **`rpg-persona`** — roleplay against the strongest skeptical persona from step 1 to pressure-test the pitch in conversation; review the saved `docs/ROLEPLAY_NOTES.md`.
+3. **Iterate** — feed the lessons from step 2 back into the positioning and product-experience docs, then re-run the roleplay against the next persona.
+
+Skipping step 1 is possible (`rpg-persona` will ask you to define the persona inline) but reduces the value of the drill — the buyer's objections won't be grounded in your real product or your real ICP.
 
 ## Project structure
 
