@@ -169,8 +169,6 @@ Skipping step 1 is possible (`rpg-persona` will ask you to define the persona in
 ├── skills/                # all skills, one folder each
 │   └── <skill-name>/
 │       └── SKILL.md
-├── template/
-│   └── SKILL.md           # starting point for new skills
 ├── LICENSE
 └── README.md
 ```
