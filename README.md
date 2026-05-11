@@ -66,6 +66,7 @@ The CLI auto-detects which agents you have installed and writes to the right con
 | --- | --- | --- |
 | [`code-review`](./skills/code-review) | Read-only review of any change source — PR, branch diff, working tree, recent commits, or code from the conversation | `review`, `quality`, `security`, `performance` |
 | [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
+| [`create-tasks`](./skills/create-tasks) | Senior Technical PM that turns a PRD, brief, or conversation into a small set of deep, end-to-end dev/QA tasks — performs mandatory deep repo analysis, asks clarifying questions, then writes one Markdown task per file plus a master `INDEX.md` under `docs/tasks/<feature-slug>/` | `tasks`, `engineering`, `tickets`, `planning`, `qa` |
 | [`business-review`](./skills/business-review) | Analyzes a product/business from its public-facing materials, generates and ranks buyer personas, recommends an ICP, pressure-tests positioning and pricing, saves strategy artifacts to `docs/` | `gtm`, `personas`, `icp`, `positioning`, `strategy` |
 | [`rpg-persona`](./skills/rpg-persona) | Hard buyer-persona roleplay with a coaching block after every reply — pressure-tests pitches, messaging, and pricing, saves the transcript and lessons to `docs/ROLEPLAY_NOTES.md`. **Run [`business-review`](./skills/business-review) first** so the roleplay uses real, ranked personas. | `gtm`, `sales`, `roleplay`, `coaching`, `objection-handling` |
 
@@ -114,6 +115,48 @@ npx skills add alamops/skills --skill to-prd
 ```
 
 Trigger it by asking any agent (or Claude Code with the plugin installed) to "write a PRD", "draft a product requirements doc", "create a feature spec", "scaffold a PRD for X", or "reverse-engineer a PRD from this repo / these files" — the skill auto-loads from the description.
+
+### [`create-tasks`](./skills/create-tasks)
+
+A senior Technical Product Manager that turns a PRD, feature brief, ticket, conversation thread, or set of provided docs/media into a small set of deep, end-to-end, implementation-ready development and QA tasks. Performs **mandatory deep repository-context analysis** — entry points, data layer, reusable utilities, API/UI patterns, sibling code paths, tests, observability, and (when applicable) App Store / Google Play constraints — before drafting anything. Surfaces unknowns as one structured pass of clarifying questions, plans the task list with the user, then writes each task as its own Markdown file. Each task is genuinely end-to-end (no backend-only / frontend-only splits) and self-sufficient across all required layers:
+
+- **Problem / Motivation** and **Business Rules** — numbered, testable.
+- **Technical Goals** and **Dependencies** (upstream / downstream / cross-team).
+- **Files to Modify** (with exact paths from the repo) and **Related Existing Code** (utilities, services, components to reuse).
+- **Architecture Notes** with Mermaid diagrams when complexity warrants.
+- **Data Model** — schemas, fields, constraints, indexes, migrations.
+- **API Specs** — endpoints, methods, request/response schemas, error codes, auth, idempotency.
+- **Non-Functional Requirements** — performance, security, scalability, tenant isolation, reliability, atomicity, observability, validation, event-driven correctness, mobile platform compliance.
+- **Implementation Guide** — numbered steps grounded in the cited files and utilities.
+- **Error Handling** — client-facing vs log-level, ownership failures, truncation, enum consistency, mutual-exclusion.
+- **Blast-Radius & Impact Analysis** — callers, sibling paths, retries, recovery, stale state, downstream systems.
+- **Testing Strategy** — unit / integration / e2e coverage, fixtures, negative paths.
+- **Acceptance Criteria** and **QA Testing Steps** — measurable, with explicit manual scenarios.
+- **Design Specifications** — screens, states, components, accessibility, localization, with associated images.
+- **Open Questions** — anything still unresolved at write time.
+
+Each task title carries a layer prefix (`[Full-Stack]`, `[Backend+DB+Tests]`, `[Frontend+Backend+Tests]`, `[DevOps]`, `[Mobile+Backend+Tests]`, etc.) so reviewers can tell the scope at a glance. **No time, effort, story-point, or staffing estimates** — tasks describe *what* and *how*, not *how long* or *who*.
+
+Outputs save under `docs/tasks/<feature-slug>/`:
+
+- `INDEX.md` — execution-order list with prefixes, layers, dependencies, and shared assumptions/open questions.
+- `001-<slug>.md`, `002-<slug>.md`, … — one task per file, indexed by execution order.
+
+The skill is read-only on source code.
+
+Install just this skill into any compatible agent:
+
+```sh
+npx skills add alamops/skills --skill create-tasks
+```
+
+Trigger phrases: "create dev tasks", "break this PRD into tasks", "scaffold engineering tickets", "generate QA tasks", "turn this spec into implementation tickets", "create tasks for sprint X."
+
+#### Recommended product → engineering workflow
+
+1. **`to-prd`** — produce the PRD (`docs/<feature>-prd.md`), surfacing personas, requirements, success metrics, and risks.
+2. **`create-tasks`** — turn that PRD plus a deep repo scan into the task set under `docs/tasks/<feature-slug>/`.
+3. **`code-review`** — review each PR as engineers ship the tasks; feed any structural findings back into the next task set.
 
 ### [`business-review`](./skills/business-review)
 
