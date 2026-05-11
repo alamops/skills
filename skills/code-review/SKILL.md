@@ -184,7 +184,7 @@ Use bounded parallelism — fire requests concurrently with a concurrency limit.
 End every review with:
 
 - **Counts by severity** — `critical` / `high` / `medium` / `low` / `info`.
-- **Top 3 must-fix items** — highest-severity findings, named explicitly. Omit this line if there are no findings at that severity.
+- **Top must-fix items** — highest-severity findings, named explicitly. Include as many as truly warrant attention (could be one, could be several); don't pad to hit a count, don't truncate to fit one. Omit this line if there are no findings worth surfacing here.
 - **What's good (1–3 lines max).** A short, consolidated acknowledgement of what was done well — e.g. "Test scope is tight, the action-union pattern is consistent with the file, and the rename handler is symmetric with the existing upsert." One sentence is ideal; never a list of separate "positive findings."
 - **Verdict** — `approve` / `request changes` / `comment`.
 
