@@ -27,7 +27,7 @@ Before reviewing, identify *what* you are reviewing. The skill applies the same 
 3. **Complete the entire review.** Walk every changed file. Don't stop after the first few hits.
 4. **Question, don't assume.** If you're unsure whether something is a bug, frame it as a question. Don't fabricate certainty.
 5. **Explain the why.** Every finding states what the issue is and why it matters. No bare assertions.
-6. **Acknowledge good code.** Call out clever solutions, solid patterns, and well-tested logic — not just defects.
+6. **No positive findings.** Findings are for problems. Do *not* emit `[info] Positive: …` items, do *not* dress up "this is fine" or "nice touch" observations as findings, and do *not* add `info` entries that boil down to "this code is good / consistent / well-scoped / harmless." If something is clean, it goes in the overall summary as a one-line acknowledgement — not as its own finding block. When in doubt, ask: "Is there an action the author should take?" If no, it is not a finding.
 
 ## Review efficiency
 
@@ -184,5 +184,8 @@ Use bounded parallelism — fire requests concurrently with a concurrency limit.
 End every review with:
 
 - **Counts by severity** — `critical` / `high` / `medium` / `low` / `info`.
-- **Top 3 must-fix items** — highest-severity findings, named explicitly.
+- **Top 3 must-fix items** — highest-severity findings, named explicitly. Omit this line if there are no findings at that severity.
+- **What's good (1–3 lines max).** A short, consolidated acknowledgement of what was done well — e.g. "Test scope is tight, the action-union pattern is consistent with the file, and the rename handler is symmetric with the existing upsert." One sentence is ideal; never a list of separate "positive findings."
 - **Verdict** — `approve` / `request changes` / `comment`.
+
+If the review surfaced **zero findings**, skip the counts table and the must-fix line. Lead directly with a 2–4 sentence summary of what the change does and what was done well, then state the verdict. Do not pad the response with empty sections or fabricated nits.
