@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: (alamops) Performs a thorough, read-only code review on any source of changes — a pull request, a git diff, uncommitted edits in the working tree, recent commits on the current branch, or code that was just produced or discussed in the conversation. Flags bugs, security issues (tenant isolation, authz gaps, atomicity, retry safety, multi-step flow completeness), performance issues (in-memory aggregation, sequential fan-out, partial-period comparisons), consistency issues, and blast-radius gaps. Returns structured findings (category, severity, file, line, suggestion) without modifying any code. Use whenever the user asks for a code review, PR review, diff review, feedback on pending or recent changes, or a critique of code just written in this session.
+description: (alamops) Performs a thorough, read-only code review on any source of changes — a pull request, a git diff, uncommitted edits in the working tree, recent commits on the current branch, or code that was just produced or discussed in the conversation. Flags bugs, security issues (tenant isolation, authz gaps, atomicity, retry safety, multi-step flow completeness, RLS / row-policy self-recursion), performance issues (in-memory aggregation, sequential fan-out, partial-period comparisons), consistency issues (including schema ↔ code column-reference drift), and blast-radius gaps. Returns structured findings (category, severity, file, line, suggestion) without modifying any code. Use whenever the user asks for a code review, PR review, diff review, feedback on pending or recent changes, or a critique of code just written in this session.
 ---
 
 # Code review
@@ -45,9 +45,9 @@ Review progress:
 - [ ] Review target identified (PR / branch diff / working tree / recent commits / in-conversation edits)
 - [ ] Intent gathered (PR description, commit messages, conversation context, or stated goal)
 - [ ] All changed files reviewed
-- [ ] Security swept (tenant isolation, authz, atomicity, retry, flow completeness, orphaned state)
+- [ ] Security swept (tenant isolation, authz, atomicity, retry, flow completeness, orphaned state, RLS self-recursion)
 - [ ] Performance swept (in-memory aggregation, fan-out, duplicate scans, period comparisons)
-- [ ] Consistency swept (enums, validation, business-rule duplication, contract alignment)
+- [ ] Consistency swept (enums, validation, business-rule duplication, contract alignment, schema↔code column-reference drift)
 - [ ] Blast radius traced for every modification (callers, sibling paths, downstream flows)
 - [ ] Findings logged with category, severity, file, line, suggestion
 - [ ] Overall summary written (counts, top issues, verdict)
@@ -71,6 +71,7 @@ Clean, readable, maintainable code. Names that describe intent.
 - **Multi-step flow completeness.** Do flows spanning multiple requests / redirects / pages (auth, payment, invitation) have a handler at every redirect destination? Does every temp token / authorization code have a consuming endpoint? Do callbacks check authorization, membership, *and* invitation — not just the happy-path exchange?
 - **Orphaned state cleanup.** When an early step creates durable state (auth sessions, tokens, records) and a later step fails, is the early state rolled back? On password change, are other sessions invalidated? On feature disablement, are dependent records cleaned up?
 - **Source-of-truth verification.** Is auth checked against the actual provider (a real session/token validation call) — not proxies like cookie-name existence, header presence, or cached state? Does route protection verify assurance levels (post-MFA) and app-layer authorization (org membership, role)?
+- **RLS / policy self-recursion.** For any row-level-security or row-policy definition, does the `USING` / `WITH CHECK` clause query the *same table the policy protects* (directly, or transitively via a view)? Postgres throws `42P17 infinite recursion detected in policy for relation "<T>"` at query time, often only on the read path that triggers it — easy to ship undetected. The fix is to wrap the membership check in a `SECURITY DEFINER` helper function so the inner lookup bypasses RLS. **Also**: when adding a new query, RPC, or join that touches table T, scan T's *existing* policies for self-referencing `EXISTS (SELECT … FROM T …)` patterns even if T is not in this diff — the recursion only manifests when something queries T, so a clean new RPC can still detonate an old policy.
 
 ### Performance
 
@@ -97,6 +98,7 @@ Is failure handled, or punted upward without context?
 - **Validation consistency.** Do sibling endpoints (GET/POST/PATCH/DELETE on the same resource) use the same validation approach, or does one fall back to raw type assertions? Are validations semantically correct (e.g., hour values 0–23, not just two digits)?
 - **Single source of truth for business rules.** Is the same rule (password requirements, access criteria) implemented in multiple places (client indicator + server schema, frontend form + API validation)? Do they enforce identical constraints? Can the UI show "valid" while the API rejects?
 - **Mutual-exclusion / co-dependency.** Do schemas marking fields optional enforce that at least one of a mutually-exclusive group is present? (e.g., password OR an OAuth provider required — not both optional with no refinement.) Look for cross-field validation / refinement.
+- **Column-reference drift (schema ↔ code).** When client / server code names a column — `.select('a, b, last_message_at')`, `.eq('status', …)`, `.order('created_at')`, raw SQL strings, ORM field refs — does the column actually exist in the migration history? Grep the migrations for each referenced column name. A missing column produces a runtime `42703 column "X" does not exist` that unit tests typically miss (they mock the DB). Conversely: when a diff *adds* a column, is something on the other side reading it, or is it stranded? This catches the "client merged before the migration" and "migration merged but feature shipped without the column wired up" failure modes.
 
 ### Blast radius (CRITICAL)
 
