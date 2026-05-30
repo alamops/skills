@@ -1,0 +1,22 @@
+[
+  {"query": "ok so apple keeps rejecting my app and im not sure why anymore. can u look thru the project and tell me whats gonna get bounced next time? its react native, lives in /apps/mobile", "should_trigger": true},
+  {"query": "Run an App Store readiness audit on this Expo project before I submit to TestFlight tomorrow morning", "should_trigger": true},
+  {"query": "Is my app 4.8 compliant? I just added Google sign-in to the iOS build last week and i havent touched siwa yet", "should_trigger": true},
+  {"query": "we ship to ios next thursday and im paranoid. given the recent changes around required reason apis and the privacy manifest stuff, will apple bounce us if i submit as is?", "should_trigger": true},
+  {"query": "just integrated mixpanel into the swiftui app for product analytics, want to make sure the ATT prompt and Info.plist usage strings are set up the way apple wants em", "should_trigger": true},
+  {"query": "we're switching some of our digital subscriptions from in-app purchase to stripe checkout since stripe is way cheaper. before i merge — can you confirm thats actually allowed under the current app store rules or are we asking for a rejection?", "should_trigger": true},
+  {"query": "before i archive and upload to app store connect, can you do a pre flight on this Flutter codebase? mainly worried about the privacy manifest, account deletion, and our analytics setup", "should_trigger": true},
+  {"query": "audit just 5.1 (privacy) for this capacitor app — we collect a fair amount of analytics + crash logs and i dont know if our privacy nutrition labels in app store connect actually match what the code does", "should_trigger": true},
+  {"query": "i added account creation via firebase auth to my ios app, anything else i need to do to keep apple happy when i submit?", "should_trigger": true},
+  {"query": "check this repo against the app store review guidelines and tell me what would get rejected — its an ios native swift app, we use revenuecat for subs and firebase analytics", "should_trigger": true},
+  {"query": "can u do a code review of the ios networking layer in /apps/mobile/ios/Networking/APIClient.swift? im worried about the retry logic and the timeout handling — looks like we retry on 500s which seems wrong", "should_trigger": false},
+  {"query": "need help calling the App Store Connect API to fetch yesterdays downloads + revenue and pipe them into our internal grafana dashboard — fastlane is too heavy for this one job", "should_trigger": false},
+  {"query": "im publishing to google play tomorrow and the play console keeps yelling about the data safety form. can you cross check what i marked in the form vs what the code actually does?", "should_trigger": false},
+  {"query": "show me how to add Sign in with Apple to my Next.js + Supabase web app, the apple docs are kinda confusing and the next-auth provider keeps throwing invalid_client", "should_trigger": false},
+  {"query": "help me debug why my macOS app's hardened runtime is rejecting the binary at launch — error 0x10000003 in Console.app, it was working fine before i upgraded to xcode 16", "should_trigger": false},
+  {"query": "walk me through how to actually wire up StoreKit 2 subscriptions in a SwiftUI app — i have the product IDs configured in app store connect already, just need the swift code for purchasing + restore", "should_trigger": false},
+  {"query": "rewrite my app store listing description to sound less corporate, current draft is in marketing/store/description.txt — keep it under 4000 chars and dont lose the keywords", "should_trigger": false},
+  {"query": "is my apple pay integration in the checkout flow set up right? the payment sheet shows up but the merchant validation step keeps failing with errorCode 0", "should_trigger": false},
+  {"query": "my swiftui list re-renders the entire view tree every time the user types in the search bar, even tho the data didnt change. can you find the leak? code in HomeView.swift", "should_trigger": false},
+  {"query": "draft a privacy policy for my saas — we collect emails, ip addresses, and usage analytics via posthog. needs to be ccpa + gdpr compliant", "should_trigger": false}
+]

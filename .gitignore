@@ -2,3 +2,5 @@
 node_modules/
 .claude/
 *.log
+evals/*/optimizer-runs/
+skills/*-workspace/
