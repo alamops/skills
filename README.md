@@ -65,6 +65,7 @@ The CLI auto-detects which agents you have installed and writes to the right con
 | Skill | Description | Tags |
 | --- | --- | --- |
 | [`code-review`](./skills/code-review) | Read-only review of any change source — PR, branch diff, working tree, recent commits, or code from the conversation | `review`, `quality`, `security`, `performance` |
+| [`appstore-review`](./skills/appstore-review) | Read-only pre-submission audit against the **live** Apple App Store Review Guidelines — fetches the current rules from developer.apple.com, fans out parallel sub-agents per guideline section, returns rejection-risk findings keyed by rule number, or a clean verdict | `review`, `ios`, `app-store`, `compliance`, `mobile` |
 | [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
 | [`create-tasks`](./skills/create-tasks) | Senior Technical PM that turns a PRD, brief, or conversation into a small set of deep, end-to-end dev/QA tasks — performs mandatory deep repo analysis, asks clarifying questions, then writes one Markdown task per file plus a master `INDEX.md` under `docs/tasks/<feature-slug>/` | `tasks`, `engineering`, `tickets`, `planning`, `qa` |
 | [`business-review`](./skills/business-review) | Analyzes a product/business from its public-facing materials, generates and ranks buyer personas, recommends an ICP, pressure-tests positioning and pricing, saves strategy artifacts to `docs/` | `gtm`, `personas`, `icp`, `positioning`, `strategy` |
@@ -89,6 +90,26 @@ npx skills add alamops/skills --skill code-review
 ```
 
 Trigger it by asking any agent (or Claude Code with the plugin installed) for a "code review", "PR review", "diff review", "feedback on pending or recent changes", or "review the code we just wrote" — the skill auto-loads from the description.
+
+### [`appstore-review`](./skills/appstore-review)
+
+A pre-submission audit that checks an iOS-shipping project against the **current** Apple App Store Review Guidelines — and pulls those guidelines live from `developer.apple.com` on every run, so it never reviews against a stale snapshot in the model's head. Apple's rules drift several times a year (ATT, required-reason APIs, privacy manifests, alternative-payment language, account-deletion mandates, generative-AI controls); reviewing from memory is how teams burn a review cycle. If the live fetch fails, the skill aborts rather than guess.
+
+How it works:
+
+- **Detects the project shape** — native iOS (Swift/SwiftUI/UIKit/Xcode), React Native, Expo, Flutter, Capacitor/Ionic, or Unity — then builds a Project Profile (payment surface, tracking SDKs, auth providers, UGC, kids-category signals) so it only flags rules that actually apply.
+- **Fans out parallel sub-agents** across the five guideline sections (Safety 1.x, Performance 2.x, Business 3.x, Design 4.x, Legal 5.x) plus two cross-cutting lanes — App Privacy / required-reason APIs and App Tracking Transparency — each scoped to just its slice of the live text. Tracking lanes are skipped (and the skip is reported) when no tracking surface exists.
+- **Cross-checks the common deal-breakers** Apple rejects on weekly: account creation with no in-app deletion (5.1.1(v)), missing Sign in with Apple parity (4.8), ATT prompt vs. `NSUserTrackingUsageDescription` mismatch, digital goods sold outside IAP (3.1.1), missing usage descriptions or `PrivacyInfo.xcprivacy`, and leftover TestFlight/beta gates in the production path.
+
+Output is a verdict (✅ likely pass / ⚠️ risk / 🛑 will be rejected) followed by findings grouped by severity, each keyed to a guideline number with `Evidence` (`file:line` or `absent: <thing>`), `Why it fails`, and a concrete `Fix`. It never modifies code.
+
+Install just this skill into any compatible agent:
+
+```sh
+npx skills add alamops/skills --skill appstore-review
+```
+
+Trigger phrases: "run an App Store review", "App Store readiness check", "pre-submission audit", "will Apple reject this?", "is this 4.8-compliant?", "I added Google sign-in — am I OK?", or asking whether a specific change (moving subs off IAP, adding an analytics SDK, a new permission) is allowed. For a general bug/perf/security review, use [`code-review`](./skills/code-review) instead; for *implementing* a feature (Sign in with Apple, IAP, ATT), this skill audits, it doesn't build.
 
 ### [`to-prd`](./skills/to-prd)
 
@@ -212,6 +233,9 @@ Skipping step 1 is possible (`rpg-persona` will ask you to define the persona in
 ├── skills/                # all skills, one folder each
 │   └── <skill-name>/
 │       └── SKILL.md
+├── evals/                 # eval sets for description-trigger tuning (optional, per skill)
+│   └── <skill-name>/
+│       └── trigger_eval.json
 ├── LICENSE
 └── README.md
 ```
