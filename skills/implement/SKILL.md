@@ -1,0 +1,239 @@
+---
+name: implement
+description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, or `/implement --config`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and add and run tests until green. Same skill when they hand over an existing plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces at once (API, web, mobile), or when they just want to choose which model runs each step (model routing / agents config), even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, or git chores like rebases and merge conflicts.
+---
+
+# Implement — multi-agent feature delivery
+
+You are the **orchestrator**. You run in the current session, on the current model. You do the *thinking* — investigation synthesis, interrogation, planning, decomposition, and merging — yourself, and you delegate the *parallelizable labor* (research, code changes, test authoring, test running) to background sub-agents whose models are chosen per phase in `AGENTS_CONFIG.yml`.
+
+Your job is to take a feature request from a vague ask to reviewed, tested, working code — without the user having to babysit each step. You gate on the user only where their judgment is genuinely required (resolving unknowns, approving the plan), and otherwise keep moving.
+
+## Two entry points
+
+| Invocation | What to do |
+| --- | --- |
+| `/implement --config` (or "reconfigure implement") | Jump straight to **Phase 0 — Configuration** and rewrite `AGENTS_CONFIG.yml`. Do not run a delivery. |
+| `/implement <task>` or any end-to-end build request | If `AGENTS_CONFIG.yml` is missing, run **Phase 0** first, then continue into the delivery phases. If it exists, load it and go straight to **Phase 1**. |
+
+## Core rules
+
+1. **You plan; agents labor.** Investigation, code edits, test writing, and test running fan out to sub-agents. Synthesis, interrogation, planning, task decomposition, conflict-free partitioning, review triage, and merge decisions stay with you. Never delegate a decision you should own.
+2. **Every delegated task must be independently completable.** When you fan out agents in a wave, each agent's task must have *no dependency on another in-flight agent* and must touch a **disjoint set of files** from its siblings. If two pieces of work would edit the same file, either sequence them into different waves or isolate them (see *Avoiding collisions*). This is the single most important constraint — parallel agents that collide corrupt each other's work.
+3. **Honor the config.** Resolve each phase's runner(s) from `AGENTS_CONFIG.yml`. Don't silently substitute a different model. If a configured runner is unavailable, fall back per the *Runner resolution* rules and **tell the user you did**.
+4. **Gate on the human at the two real decision points** — *unless running autonomously* (see *Autonomous mode*). Stop for the user after **investigation** (to grill and confirm) and after **planning** (to approve before any code is written). Don't stop for approval at every micro-step — that defeats the purpose.
+5. **Persist the plan.** The plan is a durable artifact saved under `docs/plans/`, not just a chat message. Everything downstream references it.
+6. **Read-only until the plan is approved.** Phases 1–3 must not modify source code. The first code write happens in Phase 4, after the user signs off.
+7. **Finish the loop.** Don't declare done until implementation, review, and tests have actually run and you've reported concrete results (review verdict + test output). If tests fail, say so with the output; don't paper over it.
+8. **Track progress.** Maintain a visible checklist (see below) so the user can see which phase you're in and what each agent is doing.
+
+## Autonomous mode
+
+The workflow gates on the human twice (grill in Phase 2, plan approval in Phase 3). Both gates assume an owner is present to answer. When the invocation **grants full autonomy or the owner is unreachable** — e.g. the user says "just build it, don't ask", `/implement` is driven by another orchestrator/CI, or the caller explicitly says no one is available — run unattended instead of stalling:
+
+- **Phase 2 (grill):** skip the interactive interrogation. Resolve each unknown yourself with the most reasonable, clearly-stated assumption, and record every one in the plan's *Open questions / assumptions* section.
+- **Phase 3 (approval):** self-approve the plan and proceed to Phase 4 without waiting. The plan is still written and persisted.
+- **Always log the deviation.** Note in the plan header and in the final report that the two gates were bypassed under autonomous mode, and surface the assumption list prominently so a human can audit the decisions after the fact.
+
+Everything else (investigate → implement → review → tests → run → fix) is unchanged. Default to *interactive* unless autonomy is clearly signalled — bypassing a present owner's judgment is worse than pausing for it.
+
+## Phase 0 — Configuration
+
+`AGENTS_CONFIG.yml` (repo root) maps each phase to one or more **runners**. Read `references/agents-config.md` for the full schema, placeholders, and presets; the canonical starting point is `assets/AGENTS_CONFIG.example.yml`.
+
+A runner is one of:
+- **`type: self`** — you, the orchestrator, do the phase inline in this session (no sub-agent). Only valid for `planning` and the interactive parts.
+- **`type: claude`** — a native Claude Code sub-agent spawned via the Agent tool, with `model:` one of `opus | sonnet | haiku | fable` (these map directly to the Agent tool's `model` parameter).
+- **`type: shell`** — an external CLI harness (Codex, Gemini, Aider, etc.) spawned via Bash. Carries a `command:` template with placeholders (`{PROMPT}`, `{TASK_FILE}`, `{CWD}`) and a human-readable `model:` label.
+
+When a phase lists **more than one runner**, the phase `strategy` decides what happens:
+- **`distribute`** (default) — you split the phase into independent tasks and spread them across the runners in parallel. Each task runs once. Maximizes throughput.
+- **`race`** — you run the *same* task on every runner, then judge the outputs yourself and keep the best (optionally grafting good ideas from the runners-up). Higher cost, higher quality. Reserve for genuinely hard or high-stakes work. **Two shapes of race:** for *generative* tasks (implementation, test authoring) the runners produce competing artifacts — pick the strongest whole. For *analytical* tasks (code review, verification) they produce competing *judgments* — don't pick one report and discard the other; take the **union of distinct findings** and judge each on its own merits (a finding only one reviewer raised can still be real; a severity only one assigned is a prompt to re-check, not to average).
+
+You may override the configured strategy per task when the config's `defaults.allow_orchestrator_override` is `true`: distribute the routine tasks, race the one or two that are risky or ambiguous.
+
+### First-time setup (no config present, or `--config`)
+
+Keep this short and friendly — don't make the user hand-author YAML.
+
+1. Show the three built-in presets and let the user pick one, tweak it, or hand-roll:
+   - **balanced** (default) — planning done inline by the orchestrator (`self`), review on `opus`, investigate/implement/tests-creation/tests-fixes on `sonnet`, test-running on `haiku`.
+   - **fast** — cheaper/faster: planning `self`, implement + tests + test-running on `haiku`, review on `sonnet`.
+   - **quality** — planning `self`, `opus` on implement, review, and tests-fixes; `sonnet` on investigate + tests-creation; `haiku` on test-running.
+
+   Generate the summary you show the user *from* the chosen preset object rather than hand-describing it, so the description can't drift from what you write to disk.
+2. Ask whether they want to plug in any **external harness** (e.g. `gpt-5.4-mini` via Codex, Gemini) for any phase. If yes, capture the CLI command template and which phase(s) it joins, and set that phase's `strategy` (distribute vs race). If they don't mention one, keep it Claude-only — don't invent CLIs.
+3. Write `AGENTS_CONFIG.yml` to the repo root, echo the resolved config back in a short table, and tell them they can re-run `/implement --config` anytime.
+4. If this was a `--config` run, stop here. If it was a real task, continue to Phase 1.
+
+## Delivery phases
+
+Present this checklist at the start and keep it updated as you go:
+
+```
+Implement progress — <feature>
+- [ ] Phase 0  Config loaded/created (AGENTS_CONFIG.yml)
+- [ ] Phase 1  Investigate (spawned N agents: codebase / git-history / web)
+- [ ] Phase 2  Grill & confirm (unknowns resolved with the owner)
+- [ ] Phase 3  Plan written & approved (docs/plans/<slug>.md)
+- [ ] Phase 4  Implement (M independent tasks across K agents)
+- [ ] Phase 5  Code review (code-review skill if present, else built-in rubric) — verdict
+- [ ] Phase 6  Tests created (P independent tasks)
+- [ ] Phase 7  Tests run (background agent) — pass/fail
+- [ ] Phase 8  Tests fixed (if needed) — re-run to green
+```
+
+### Sizing the fan-out (and its cost)
+
+Parallel agents multiply tokens, not just speed — a multi-agent build burns on the order of 10–15× the tokens of a single-agent pass, because every sub-agent carries its own context. So match the fan-out to the task's value and structure, and use the smallest fleet that still parallelizes cleanly:
+
+- **Scale agent count to complexity, not ambition.** Localized change → 1 investigation agent, often no fan-out at all in Phase 4. A feature touching a few subsystems → ~2–4 agents per fan-out phase. Reserve bigger fleets for genuinely independent, high-value work. Group trivially small tasks into one agent rather than one-agent-per-file.
+- **Parallelize only what's independent.** Coding parallelizes worse than research — much of it shares context and has ordering dependencies. If the work won't partition into disjoint, self-contained tasks, run fewer agents or sequential waves; don't force a fan-out that will collide.
+- **Cheap / low-value / tight-token work → sequential; time-critical / high-value → parallel.** The 15× multiplier only pays off when the wall-clock saving actually matters.
+
+### Phase 1 — Investigate
+
+Goal: understand the ground truth before asking the user anything, so your questions are sharp and your plan is grounded.
+
+**You decide how many agents to spawn** based on the surface area of the request. A typical fan-out:
+- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast.
+- **Git-history agent** — how similar features were built here before, recent changes to the files in scope, prior migrations, reverted attempts, `CHANGELOG`/PR patterns. Uses `git log`, `git blame`, `git show`.
+- **Best-practices agent** — web research (if web tools are available) on current recommended patterns, library APIs, version-specific gotchas for the technologies in play. Confirm live versions rather than trusting memory.
+
+Spawn these **in one turn** so they run concurrently, using the `investigate` runner(s). Investigation is read-only — prefer the `Explore` agent type, which can still run git and web (it has Bash/WebSearch/WebFetch) but has no edit tools, so an investigation agent structurally cannot modify code. Each agent returns a tight structured brief (findings + file:line anchors + open questions), not a file dump.
+
+Synthesize all briefs yourself into: **what we know**, **what we're assuming**, and **what we must ask the owner**.
+
+### Phase 2 — Grill & confirm
+
+Now interrogate the owner. This is a gate — you stop and wait.
+
+Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing unknowns before planning. Pull every open question from Phase 1 and press on:
+- Ambiguous scope boundaries (in / out), non-goals.
+- Exact business rules, limits, defaults, eligibility, edge cases, error states.
+- Data/contract changes, migrations, enum propagation.
+- Non-functional constraints (perf budgets, security/tenancy, reliability, observability).
+- Dependencies, feature flags, rollout, worst-case failure mode.
+- Acceptance bar (what "done" means) and how it'll be verified.
+
+Ask in **one or two structured passes** (group by topic; use the question tool where it fits). Don't drip questions one at a time. Push back on vague answers — "make it fast" → "what P95 latency is acceptable?". If the user says "you have enough, just go", proceed but **log every remaining assumption explicitly** in the plan's *Open Questions / Assumptions* section.
+
+### Phase 3 — Plan
+
+Using the `planning` runner (default `self` — you write it inline; only delegate if the config says so), produce a **complete, robust plan** and save it to `docs/plans/<feature-slug>.md` (create the folder if missing; suffix `-YYYY-MM-DD` if a file with that slug already exists, to avoid clobbering).
+
+The plan must be decomposition-ready — it's the contract every downstream agent works from. Include:
+
+```markdown
+# Plan — <Feature Name>
+| Field | Value |
+| --- | --- |
+| Date | <YYYY-MM-DD> |
+| Source | <task / PRD path / conversation> |
+| Config | AGENTS_CONFIG.yml (<preset or custom>) |
+| Branch | TBD — set in Phase 4 |
+| Base SHA | TBD — set in Phase 4 |
+
+## 1. Objective & success criteria
+## 2. Context & constraints  (grounded findings from Phase 1, with file:line anchors)
+## 3. Approach & key decisions  (alternatives considered; why this one)
+## 4. Work breakdown — implementation tasks
+   For each task: an ID, a one-line goal, the **exact files it owns** (disjoint from
+   its wave-siblings), dependencies (which task/wave must land first), and acceptance.
+## 5. Work breakdown — test tasks  (unit / integration / e2e; which impl task each covers)
+## 6. Execution waves  (which tasks run in parallel; the barrier between waves)
+## 7. Blast radius & risks  (callers, sibling paths, migrations, rollback, feature flags)
+## 8. Open questions / assumptions  (anything the owner deferred)
+```
+
+The **work breakdown is the heart of the plan**: partition the feature into tasks whose file ownership does not overlap within a wave, and order the waves so cross-task dependencies are respected. This is what makes Phase 4/6 safely parallel.
+
+**Present the plan to the user and get explicit approval before writing any code.** Offer to adjust. This is the second and final hard gate — *unless running autonomously*, in which case self-approve and continue (see *Autonomous mode*).
+
+### Phase 4 — Implement
+
+**Baseline first, before any agent writes.** This is the first phase that touches code, so set up a clean, diffable starting point:
+- **Branch.** If you're on the default branch (`main`/`master`) or the user hasn't named a target branch, create a feature branch from the plan slug (e.g. `implement/<feature-slug>`) and announce it. A multi-agent fan-out should never write directly to the default branch, and both the review diff and worktree isolation below assume a branch to work on.
+- **Record the base.** Capture `git rev-parse HEAD` as `<base>` and note whether the tree was already dirty (`git status --porcelain`). Fill the `Branch` and `Base SHA` rows the plan template reserved for this (a metadata-only edit to an approved plan — not a scope change; leave everything else untouched). Phase 5's review and the final report diff against exactly this ref, so pre-existing edits aren't misattributed to the build.
+
+For each wave in the plan, spawn one `general-purpose` sub-agent per task, **in a single turn**, using the `implementation` runner(s).
+
+Give each agent a **self-contained brief**: the objective, the exact files it owns (and a firm instruction not to touch anything else), the relevant findings/anchors from the plan, the acceptance criteria, and the project conventions to follow (match surrounding code — naming, error handling, test idiom). The agent should return a summary of what it changed and any deviations.
+
+- **Validate the wave before spawning it.** Cross-check the file-ownership lists of the tasks you're about to launch together: if any two name the same file, it isn't a valid wave — re-partition or split it before spawning. This 30-second check is the cheapest place to catch a collision.
+- **Respect wave barriers.** Wait for all agents in a wave to finish before starting the next wave, since later waves depend on earlier ones. Within a wave there are no dependencies, so they run fully concurrently.
+- **distribute vs race.** Under `distribute`, each task goes to one runner (round-robin or by suitability — give the cheaper runner the mechanical tasks, the stronger one the subtle tasks). Under `race`, send the same task to every runner and pick the best result yourself.
+- **Avoiding collisions.** The plan already partitions files by task, so same-wave agents shouldn't collide *on source files*. Two hazards remain:
+  - **Shared tooling side effects.** File-disjointness isn't enough when a wave mixes runner types. A `shell` runner (e.g. `codex … --full-auto`) and an in-tree `claude` sub-agent run in the **same working tree** at once, and the external CLI may rewrite shared surfaces the file-partition never mentioned — formatters, `package-lock`/lockfiles, the git index, generated code. Whenever a `shell` runner shares a wave with any other runner, give it its own checkout (worktree isolation) or serialize it after the in-tree agents; don't run a full-auto external CLI concurrently with an in-tree agent.
+  - **Unavoidable shared files.** If two tasks must both edit a central file (e.g. a registry), either (a) sequence them into separate waves, or (b) run the colliding agents with `isolation: "worktree"`. Prefer clean partitioning — reach for worktrees only when partitioning is genuinely impossible.
+  - **Merging worktrees.** Isolated agents commit on their own branch; afterward **you** merge them into the working branch one at a time (`git merge` per worktree) and resolve any conflicts yourself. Because merging is the step most likely to strand or clobber work, treat it as a last resort behind re-partitioning.
+- **Checkpoint after each wave.** Do a quick sanity pass (build/typecheck if cheap), then commit the wave (`wave N: <summary>`). The plan plus these commits are your resume points: if a later wave, the review, or a test run fails, you pick up from the last green wave instead of restarting the build — never discard completed work on a downstream failure.
+
+See *Spawning runners* below for the exact mechanics of Claude vs shell runners.
+
+### Phase 5 — Code review
+
+Spawn a `general-purpose` agent on the `code_review` runner to review the diff produced in Phase 4 — `git diff <base>...HEAD` using the `<base>` recorded at the start of Phase 4 (plus any still-uncommitted changes) — returning structured findings (category, severity, file, line, suggestion).
+
+**Tests don't exist yet at this point** — they're written in Phase 6, right after. So the diff under review is production code *without* its tests by design. **Explicitly brief the review agent not to flag missing/absent test coverage as a finding** — that's pipeline sequencing, not a defect, and left unsaid every reviewer will raise it as a spurious must-fix. (Test *quality* is reviewed implicitly when Phase 6's tests land; the closed loop is Phase 7 running them.)
+
+**Which rubric:** decide *before* spawning the agent by checking your own available-skills list (shown at the top of your context) — skill availability is session-scoped, not repo-scoped, so you can see it directly rather than trusting the sub-agent to.
+- If a `code-review` skill is listed **and** the user/config hasn't asked for strict standalone behavior → instruct the agent to load and follow it.
+- Otherwise (`/implement` is standalone by design) → hand the agent the built-in rubric below.
+Either way, **require the agent to state in its report which rubric it actually used**, so you can confirm the intended path was taken rather than infer it.
+
+> **Built-in review rubric (fallback):** walk every changed file and flag, with file:line evidence — **bugs** (logic errors, unhandled edge cases, error-handling gaps); **security** (tenant isolation, authorization, atomicity/TOCTOU, retry safety, multi-step flow completeness, orphaned state, secrets/input validation); **performance** (in-memory aggregation, sequential fan-out, duplicate scans); **consistency** (enum/validation drift, schema↔code column drift, duplicated business rules); and **blast radius** (callers, sibling paths, retries, stale state, downstream systems). Report problems only — no "looks good" findings — each with category, severity, file, line, and a concrete fix. Do **not** flag absent tests (Phase 6 adds them). Read-only: never edit code during review.
+
+Triage the findings yourself. Fold **must-fix** items (bugs, security, correctness) into a fix list for Phase 8. Note nice-to-haves for the user. Don't auto-apply — you decide what's in scope, then fix via agents in Phase 8.
+
+### Phase 6 — Tests creation
+
+Same mechanics as Phase 4, using the `tests_creation` runner(s) and the plan's **test work breakdown**. Partition test tasks by the module/file under test so agents don't collide. Each agent extends the project's existing test setup and fixtures (from Phase 1 findings) rather than inventing a parallel harness, and covers the acceptance criteria plus negative paths for its assigned area.
+
+### Phase 7 — Tests running
+
+Spawn **one background agent** on the `tests_running` runner to run the suite (the project's test command — discover it in Phase 1) and report back: pass/fail counts, the failing tests, and the relevant output. Background is ideal here — you'll be notified when it finishes. If the command is unknown, ask the user once for it (and note it in the plan for next time).
+
+### Phase 8 — Tests fixes (conditional)
+
+If Phase 5 surfaced must-fix findings, or Phase 7 reported failures, spawn fix agents exactly like Phase 4 — independent, file-disjoint tasks on the `tests_fixes` runner, each scoped to one failure cluster or finding. Then **re-run Phase 7**. Loop until green or until you hit a wall you can't resolve without the user — at which point stop and report the remaining failures with evidence, rather than looping forever. Cap at a sensible number of rounds (say 3) before checking in.
+
+## Spawning runners
+
+**Claude runner (`type: claude`):** use the Agent tool. Set `subagent_type` (`Explore` for read-only investigation, `general-purpose` for implementation/tests/review), `model` to the configured alias (`opus|sonnet|haiku|fable`), and `run_in_background: false` when you need the result inline before the next wave (Phases 4/6), or leave it in the background for Phase 7. Launch all agents of one wave in a single message so they run concurrently.
+
+**Shell runner (`type: shell`):** write the task brief to a file under the scratchpad (or `docs/plans/tasks/`), then invoke the CLI via Bash with the config's `command` template, substituting `{PROMPT}` / `{TASK_FILE}` / `{CWD}`. Use `run_in_background: true` for long runs and collect the output when it completes. **Before the first shell-runner call in a phase, verify the CLI exists** (`command -v <bin>`). If it's missing, fall back per below and tell the user.
+
+### Writing a delegated brief
+
+A sub-agent can't pause to ask you questions — its first (and only) instruction has to carry everything it needs. Brief quality is the single biggest lever on multi-agent results: vague briefs cause overlapping work and rework. Every brief you send — investigation, implementation, tests, fixes — nails four things:
+
+- **Objective** — the one outcome this agent owns, in a sentence.
+- **Output format** — exactly what to return, and keep it uniform across siblings so you can consume them together (e.g. "a findings brief with file:line anchors"; "a summary of files changed + any deviations"; "review findings as category / severity / file / line / fix").
+- **Tools & sources** — where to look and what to use (specific files/dirs, `git log`, web for library X), so the agent doesn't rediscover the map from scratch.
+- **Boundaries** — the exact files this agent owns, plus a firm "touch nothing else — that's another agent's job." Explicit boundaries are what stop parallel agents from colliding or duplicating each other's work.
+
+Example (implementation task): *"**Objective:** add a `TransactionHistory` class. **Output:** a summary of what you changed + any deviations. **Tools/sources:** create `wallet/history.py`; mirror the style of `wallet/account.py:1-40`; no new deps. **Boundaries:** you own `wallet/history.py` only — do not edit `account.py`, the tests, or config; a later task wires it in."*
+
+### Runner resolution & fallback
+
+All fallbacks resolve to `defaults.fallback_model` (which itself defaults to `sonnet`) — never a hardcoded alias — so a user who sets `fallback_model: opus` gets that honored.
+
+- A configured `shell` runner whose CLI is not installed → fall back to that runner's `unavailable_fallback`, else the phase's first `claude` runner, else `defaults.fallback_model`. Announce the substitution.
+- A `claude` runner with an unrecognized model alias → fall back to `defaults.fallback_model` and warn.
+- `type: self` on a phase other than `planning` → treat as a `defaults.fallback_model` claude runner and warn (only planning/interaction can be done inline).
+- Missing phase entry entirely → use the `balanced` preset's value for that phase.
+
+## Reporting back
+
+When the loop completes, give the user a tight wrap-up:
+- **Plan:** `docs/plans/<slug>.md`.
+- **Implemented:** the waves/tasks that ran and which runner did each.
+- **Review verdict:** counts by severity + must-fixes addressed.
+- **Tests:** final pass/fail with the command used.
+- **Open items:** anything deferred, any assumptions logged, any remaining failures you couldn't resolve.
+- **Next step:** e.g. "review `docs/plans/<slug>.md`", or "run `/code-review` on the branch before pushing".
+
+## Adapting to reality
+
+These eight phases are the backbone, not a straitjacket. A tiny change may collapse investigation to a single agent and skip the grill. A research-heavy feature may loop investigation → grill twice before planning. If the user says "skip tests" or "no need to review", honor it and note it. The value is in the *orchestration discipline* — grounded investigation, resolved unknowns, a durable plan, collision-free parallel execution, and a closed test loop — not in rigidly performing all eight steps regardless of the task.

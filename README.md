@@ -68,6 +68,7 @@ The CLI auto-detects which agents you have installed and writes to the right con
 | [`appstore-review`](./skills/appstore-review) | Read-only pre-submission audit against the **live** Apple App Store Review Guidelines — fetches the current rules from developer.apple.com, fans out parallel sub-agents per guideline section, returns rejection-risk findings keyed by rule number, or a clean verdict | `review`, `ios`, `app-store`, `compliance`, `mobile` |
 | [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
 | [`create-tasks`](./skills/create-tasks) | Senior Technical PM that turns a PRD, brief, or conversation into a small set of deep, end-to-end dev/QA tasks — performs mandatory deep repo analysis, asks clarifying questions, then writes one Markdown task per file plus a master `INDEX.md` under `docs/tasks/<feature-slug>/` | `tasks`, `engineering`, `tickets`, `planning`, `qa` |
+| [`implement`](./skills/implement) | End-to-end feature-delivery orchestrator — the session model plans, then fans out background sub-agents through investigate → grill → plan → implement → review → tests → run → fix, with per-phase model/harness routing in `AGENTS_CONFIG.yml` (multi-harness per step supported) | `orchestration`, `agents`, `implementation`, `planning`, `tests` |
 | [`business-review`](./skills/business-review) | Analyzes a product/business from its public-facing materials, generates and ranks buyer personas, recommends an ICP, pressure-tests positioning and pricing, saves strategy artifacts to `docs/` | `gtm`, `personas`, `icp`, `positioning`, `strategy` |
 | [`rpg-persona`](./skills/rpg-persona) | Hard buyer-persona roleplay with a coaching block after every reply — pressure-tests pitches, messaging, and pricing, saves the transcript and lessons to `docs/ROLEPLAY_NOTES.md`. **Run [`business-review`](./skills/business-review) first** so the roleplay uses real, ranked personas. | `gtm`, `sales`, `roleplay`, `coaching`, `objection-handling` |
 
@@ -177,7 +178,33 @@ Trigger phrases: "create dev tasks", "break this PRD into tasks", "scaffold engi
 
 1. **`to-prd`** — produce the PRD (`docs/<feature>-prd.md`), surfacing personas, requirements, success metrics, and risks.
 2. **`create-tasks`** — turn that PRD plus a deep repo scan into the task set under `docs/tasks/<feature-slug>/`.
-3. **`code-review`** — review each PR as engineers ship the tasks; feed any structural findings back into the next task set.
+3. **`implement`** — orchestrate the actual build: investigate, grill, plan, then fan out background agents to code, review, and test each task.
+4. **`code-review`** — review each PR as engineers ship the tasks; feed any structural findings back into the next task set.
+
+### [`implement`](./skills/implement)
+
+An end-to-end feature-delivery orchestrator. Invoked as `/implement <task>`, the **current session model stays in the driver's seat** — it does the thinking (synthesis, interrogation, planning, decomposition, merge decisions) and delegates the parallelizable labor to background sub-agents whose models are chosen per phase in `AGENTS_CONFIG.yml`. It runs eight phases:
+
+1. **Investigate** — the orchestrator decides how many read-only agents to spawn and fans them out in parallel across the codebase, git history, and (when web tools are available) current best practices.
+2. **Grill & confirm** — a hard, respectful interrogation of the owner to resolve every load-bearing unknown before planning. First hard gate.
+3. **Plan** — a complete, decomposition-ready plan saved to `docs/plans/<feature-slug>.md`, whose work breakdown partitions the feature into file-disjoint tasks and execution waves. Presented for explicit approval — second hard gate.
+4. **Implement** — one background agent per task, launched in waves, each with a self-contained brief and an exclusive set of files so parallel agents never collide (worktree isolation when clean partitioning isn't possible).
+5. **Code review** — reviews the diff using the [`code-review`](./skills/code-review) skill as the rubric when it's installed, else a built-in review rubric bundled in the skill (so `/implement` stays fully standalone); the orchestrator triages must-fixes.
+6. **Tests creation** — the same collision-free fan-out, partitioned by module under test.
+7. **Tests running** — a single background agent runs the suite and reports pass/fail.
+8. **Tests fixes** *(conditional)* — fix agents for failures and must-fix findings, then re-run to green.
+
+**Per-phase model/harness routing** lives in `AGENTS_CONFIG.yml` at the repo root. Each phase resolves to one or more *runners*: the orchestrator itself (`self`), a Claude sub-agent (`opus`/`sonnet`/`haiku`/`fable`), or an external CLI harness (Codex, Gemini, Aider, …) via a shell command template. Listing **multiple harnesses per step** — e.g. `haiku` + `gpt-5.4-mini` on implementation — either *distributes* independent tasks across them or *races* the same task and keeps the best, per the phase `strategy`. Missing external CLIs fall back to a Claude sub-agent automatically.
+
+On the first `/implement` run with no config, the skill runs a short guided setup (pick a `balanced` / `fast` / `quality` preset, optionally plug in an external harness) and writes `AGENTS_CONFIG.yml`. Re-run setup anytime with `/implement --config`. See [`assets/AGENTS_CONFIG.example.yml`](./skills/implement/assets/AGENTS_CONFIG.example.yml) and [`references/agents-config.md`](./skills/implement/references/agents-config.md) for the full schema.
+
+Install just this skill into any compatible agent:
+
+```sh
+npx skills add alamops/skills --skill implement
+```
+
+Trigger phrases: "/implement", "build this feature end-to-end", "orchestrate the implementation", "plan and implement X", "run a multi-agent build", "/implement --config".
 
 ### [`business-review`](./skills/business-review)
 
