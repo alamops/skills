@@ -23,9 +23,11 @@ This repo is a curated, personal collection. Each skill is small, focused, and w
 
 | Channel | How to install | Works with |
 | --- | --- | --- |
-| **Claude Code marketplace** | `/plugin marketplace add alamops/skills` | Claude Code |
-| **`npx skills` CLI** | `npx skills add alamops/skills` | Claude Code, Codex, Cursor, Gemini CLI, Continue, Cline, Aider, and [50+ more](https://github.com/vercel-labs/skills#supported-agents) |
+| **Claude Code marketplace** | `/plugin marketplace add alamops/skills` | Claude Code — **recommended for Claude Code** |
+| **`npx skills` CLI** | `npx skills add alamops/skills` | Codex, Cursor, Gemini CLI, Continue, Cline, Aider, and [50+ more](https://github.com/vercel-labs/skills#supported-agents) — plus Claude Code, with the caveat below |
 | **Manual** | Copy any `skills/<name>/` folder into your agent's skills directory | Any agent that follows the SKILL.md spec |
+
+> **Claude Code users: install via the plugin marketplace, not the `npx skills` CLI.** The CLI keeps one canonical copy of each skill in `~/.agents/skills/` and *symlinks* it into each agent's own folder (`~/.claude/skills/` for Claude Code). Claude Code only reads `~/.claude/skills/`, and there are open CLI bugs where the skill lands in `~/.agents/skills/` but the `~/.claude/skills/` symlink is never created — so it "installs" yet Claude Code can't see it ([#744](https://github.com/vercel-labs/skills/issues/744), [#693](https://github.com/vercel-labs/skills/issues/693), [#851](https://github.com/vercel-labs/skills/issues/851)). The plugin writes straight into Claude Code and doesn't depend on symlinks.
 
 ## Install
 
@@ -38,27 +40,47 @@ This repo is a curated, personal collection. Each skill is small, focused, and w
 
 Skills are then invokable as `/alamops-skills:<skill-name>` (or auto-triggered from the description).
 
-### Any agent (per-skill, via `npx skills`)
+### Any agent (via `npx skills`)
 
-List everything available in the repo:
+Works with Codex, Cursor, Gemini CLI, and the [50+ other supported agents](https://github.com/vercel-labs/skills#supported-agents) — and with Claude Code, though the [plugin above](#claude-code-whole-bundle-as-a-plugin) is more reliable there (see the [Compatibility](#compatibility) caveat).
+
+First, list everything available in the repo:
 
 ```sh
 npx skills add alamops/skills --list
 ```
 
-Install all skills:
+Then target a specific agent with `--agent`, and pass `--skill '*'` for every skill (or `--skill <name>` for one). Instructions for the two most common agents:
+
+#### Codex
 
 ```sh
-npx skills add alamops/skills --all
+# Every skill
+npx skills add alamops/skills --skill '*' --agent codex
+
+# A single skill
+npx skills add alamops/skills --skill <skill-name> --agent codex
 ```
 
-Install a specific skill:
+Codex reads skills from `~/.codex/skills/` (global) or `.agents/skills/` (project).
+
+#### Claude Code
+
+> Prefer the [plugin marketplace](#claude-code-whole-bundle-as-a-plugin) — it's the reliable route on Claude Code. Use the CLI only if you specifically want per-skill installs.
 
 ```sh
-npx skills add alamops/skills --skill <skill-name>
+# Every skill
+npx skills add alamops/skills --skill '*' --agent claude-code
+
+# A single skill
+npx skills add alamops/skills --skill <skill-name> --agent claude-code
 ```
 
-The CLI auto-detects which agents you have installed and writes to the right config directory (`.claude/skills/`, `.agents/skills/`, etc.). See [vercel-labs/skills](https://github.com/vercel-labs/skills) for full options.
+Claude Code reads skills **only** from `~/.claude/skills/` (global) or `.claude/skills/` (project). **Verify the install actually linked** — run `npx skills list -g` (or check that those folders contain the skills). A [known symlink bug](https://github.com/vercel-labs/skills/issues/744) can leave skills stranded in `~/.agents/skills/` where Claude Code never sees them; if that happens, use the plugin instead.
+
+> **Avoid `--all` on Claude Code.** It installs to **all** detected agents non-interactively and relies on the same symlink step that the bug above breaks. Target `--agent claude-code` explicitly, or use the plugin.
+
+The CLI keeps one canonical copy of each skill under `~/.agents/skills/` (or `.agents/skills/` for a project-scoped install) and symlinks it into each targeted agent's directory. See [vercel-labs/skills](https://github.com/vercel-labs/skills) for full options.
 
 ## Skills
 
