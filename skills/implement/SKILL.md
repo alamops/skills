@@ -1,6 +1,6 @@
 ---
 name: implement
-description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, or `/implement --config`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and add and run tests until green. Same skill when they hand over an existing plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces at once (API, web, mobile), or when they just want to choose which model runs each step (model routing / agents config), even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, or git chores like rebases and merge conflicts.
+description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, or `/implement --config`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and test until green. Same skill when they hand over a plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces (API, web, mobile), or to choose which model runs each step (model routing / agents config), even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, git chores like rebases and merge conflicts, or scoping a standalone time-boxed spike whose output is an answer, not shipped code.
 ---
 
 # Implement — multi-agent feature delivery
@@ -15,6 +15,8 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 | --- | --- |
 | `/implement --config` (or "reconfigure implement") | Jump straight to **Phase 0 — Configuration** and rewrite `AGENTS_CONFIG.yml`. Do not run a delivery. |
 | `/implement <task>` or any end-to-end build request | If `AGENTS_CONFIG.yml` is missing, run **Phase 0** first, then continue into the delivery phases. If it exists, load it and go straight to **Phase 1**. |
+
+**When it's not this skill.** Phase 1 runs small spikes *inside* an investigation, which is a different job from taking on a **standalone, time-boxed spike** — and now that this skill talks about spikes, it's easy to mistake one for the other. The tell is what the user wants at the end: *working code that ships* (this skill) versus *a finding they'll act on later* — a feasibility answer, a benchmark number, a throwaway prototype (not this skill). If it's the latter, say so and hand it back instead of opening an eight-phase delivery; a spike that gets run as a feature build wastes the timebox that made it a spike.
 
 ## Core rules
 
