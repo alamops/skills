@@ -1,6 +1,6 @@
 ---
 name: implement
-description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, or `/implement --config`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and add and run tests until green. Same skill when they hand over an existing plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces at once (API, web, mobile), or when they just want to choose which model runs each step (model routing / agents config), even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, or git chores like rebases and merge conflicts.
+description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, or `/implement --config`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and test until green. Same skill when they hand over a plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces (API, web, mobile), or to choose which model runs each step (model routing / agents config), even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, git chores like rebases and merge conflicts, or scoping a standalone time-boxed spike whose output is an answer, not shipped code.
 ---
 
 # Implement — multi-agent feature delivery
@@ -16,6 +16,8 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 | `/implement --config` (or "reconfigure implement") | Jump straight to **Phase 0 — Configuration** and rewrite `AGENTS_CONFIG.yml`. Do not run a delivery. |
 | `/implement <task>` or any end-to-end build request | If `AGENTS_CONFIG.yml` is missing, run **Phase 0** first, then continue into the delivery phases. If it exists, load it and go straight to **Phase 1**. |
 
+**When it's not this skill.** Phase 1 runs small spikes *inside* an investigation, which is a different job from taking on a **standalone, time-boxed spike** — and now that this skill talks about spikes, it's easy to mistake one for the other. The tell is what the user wants at the end: *working code that ships* (this skill) versus *a finding they'll act on later* — a feasibility answer, a benchmark number, a throwaway prototype (not this skill). If it's the latter, say so and hand it back instead of opening an eight-phase delivery; a spike that gets run as a feature build wastes the timebox that made it a spike.
+
 ## Core rules
 
 1. **You plan; agents labor.** Investigation, code edits, test writing, and test running fan out to sub-agents. Synthesis, interrogation, planning, task decomposition, conflict-free partitioning, review triage, and merge decisions stay with you. Never delegate a decision you should own.
@@ -23,7 +25,7 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 3. **Honor the config.** Resolve each phase's runner(s) from `AGENTS_CONFIG.yml`. Don't silently substitute a different model. If a configured runner is unavailable, fall back per the *Runner resolution* rules and **tell the user you did**.
 4. **Gate on the human at the two real decision points** — *unless running autonomously* (see *Autonomous mode*). Stop for the user after **investigation** (to grill and confirm) and after **planning** (to approve before any code is written). Don't stop for approval at every micro-step — that defeats the purpose.
 5. **Persist the plan.** The plan is a durable artifact saved under `docs/plans/`, not just a chat message. Everything downstream references it.
-6. **Read-only until the plan is approved.** Phases 1–3 must not modify source code. The first code write happens in Phase 4, after the user signs off.
+6. **Read-only until the plan is approved.** Phases 1–3 must not modify the repo. The first write to a tracked file happens in Phase 4, after the user signs off. Investigation *spikes* are not an exception to this — they write and run throwaway code, but only inside the scratchpad, never in the working tree (see Phase 1).
 7. **Finish the loop.** Don't declare done until implementation, review, and tests have actually run and you've reported concrete results (review verdict + test output). If tests fail, say so with the output; don't paper over it.
 8. **Track progress.** Maintain a visible checklist (see below) so the user can see which phase you're in and what each agent is doing.
 
@@ -73,7 +75,7 @@ Present this checklist at the start and keep it updated as you go:
 ```
 Implement progress — <feature>
 - [ ] Phase 0  Config loaded/created (AGENTS_CONFIG.yml)
-- [ ] Phase 1  Investigate (spawned N agents: codebase / git-history / web)
+- [ ] Phase 1  Investigate (spawned N agents: codebase / git-history / web / spikes)
 - [ ] Phase 2  Grill & confirm (unknowns resolved with the owner)
 - [ ] Phase 3  Plan written & approved (docs/plans/<slug>.md)
 - [ ] Phase 4  Implement (M independent tasks across K agents)
@@ -99,10 +101,29 @@ Goal: understand the ground truth before asking the user anything, so your quest
 - **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast.
 - **Git-history agent** — how similar features were built here before, recent changes to the files in scope, prior migrations, reverted attempts, `CHANGELOG`/PR patterns. Uses `git log`, `git blame`, `git show`.
 - **Best-practices agent** — web research (if web tools are available) on current recommended patterns, library APIs, version-specific gotchas for the technologies in play. Confirm live versions rather than trusting memory.
+- **Spike agent(s)** — throwaway code that *tests* an assumption the other three can only assert. Spawn these only when a load-bearing unknown survives the research above; see *Spikes* below.
 
-Spawn these **in one turn** so they run concurrently, using the `investigate` runner(s). Investigation is read-only — prefer the `Explore` agent type, which can still run git and web (it has Bash/WebSearch/WebFetch) but has no edit tools, so an investigation agent structurally cannot modify code. Each agent returns a tight structured brief (findings + file:line anchors + open questions), not a file dump.
+Spawn the research agents **in one turn** so they run concurrently, using the `investigate` runner(s). Research agents are read-only — prefer the `Explore` agent type, which can still run git and web (it has Bash/WebSearch/WebFetch) but has no edit tools, so a research agent structurally cannot modify code. Each agent returns a tight structured brief (findings + file:line anchors + open questions), not a file dump.
 
-Synthesize all briefs yourself into: **what we know**, **what we're assuming**, and **what we must ask the owner**.
+**Spikes usually form a second, smaller wave**, because you can only tell which assumptions are still unresolved once the research briefs are back — launching them blind means spiking questions the docs would have answered for free. The exception is an unknown that's obvious from the request itself (the user names a library nobody here has used, or asks for something whose feasibility is the whole question): put that spike in the first wave and save a round-trip. Either way, if you spike more than one question, spawn those agents together.
+
+Synthesize all briefs yourself into: **what we know**, **what we're proving** (spike verdicts, with the evidence), **what we're assuming**, and **what we must ask the owner**.
+
+#### Spikes — validating assumptions by running code
+
+Source, history, and docs tell you what's *claimed*. Some assumptions only yield to an experiment: does this library actually support X on the version we're pinned to, does that endpoint really return the shape its docs promise, is this query fast enough at our production row count, does the approach even work in our runtime. Believing the claim and discovering the truth in Phase 4 — after a plan was approved and code was written on top of it — is the most expensive failure mode this workflow has. A spike moves that discovery to the cheapest possible moment.
+
+So when an assumption is **load-bearing** — the plan changes if it's wrong — and the codebase, git history, and web have all failed to settle it, run a **spike**: the smallest piece of throwaway code that answers exactly that one question.
+
+- **Spike only what's load-bearing and unresolved.** Most unknowns are settled by reading. A spike costs an agent, wall-clock, and tokens, so it has to buy a decision. Good test: name the plan change that follows from each possible outcome. If you can't, you're satisfying curiosity, not de-risking — skip it.
+- **One question, one spike, one verdict.** A spike that "explores the library" comes back with an essay. A spike that asks "can `pdf-lib@1.17` flatten form fields on Node 18?" comes back with yes/no and the command that proves it. Multiple unknowns → multiple spike agents in the same wave, each with its own question.
+- **Spikes write only to the scratchpad.** Give each spike its own directory under the scratchpad (`<scratchpad>/spikes/<question-slug>/`) and require it to stay there: no edits to tracked files, no new dependencies in the repo's manifest (it installs into its own throwaway env — a local `package.json`, a venv), no migrations or writes against real data. This is what keeps Phases 1–3 genuinely read-only on the repo while still letting you run code. Reading the repo is fine and usually necessary; writing to it is not.
+- **Use `general-purpose`, not `Explore`, for spike agents.** A spike needs to write and execute, which the read-only `Explore` type can't do. That means the scratchpad boundary is a *briefed* constraint rather than a structural one — so state it as the loudest line in the brief, and be specific about the directory it owns.
+- **What comes back is evidence, not code.** Require the verdict, the exact command/output or measurement that supports it, and the versions/environment it was tested under. Nobody merges the spike; its value is entirely in the finding. Ask for the artifact path too, in case you want to re-run it.
+- **Inconclusive is a real verdict.** A spike that fails to answer its question has still bought you something: you now know the assumption is genuinely uncertain, which makes it a sharp question for the owner in Phase 2 or an explicit risk in the plan. Don't let an agent round "I couldn't get it working" up to "it doesn't work" — those differ, and the distinction changes the plan.
+- **Know when it's bigger than a spike.** A probe is minutes-to-an-hour of work. If answering the question would take a day, needs credentials or infrastructure you don't have, or is really a design exploration with several branches, don't absorb it into Phase 1 — surface it in Phase 2 as a scoping decision, and let the owner decide between a properly time-boxed spike, a narrower scope, or planning around the uncertainty.
+
+Carry every verdict forward: settled assumptions become grounded context in the plan (§2/§3, with what was measured), and unsettled ones become questions in Phase 2 or entries in *Open questions / assumptions*. A decision that rests on measured evidence should say so in the plan — that's what lets a future reader tell a tested claim from a plausible one.
 
 ### Phase 2 — Grill & confirm
 
@@ -117,6 +138,8 @@ Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing un
 - Acceptance bar (what "done" means) and how it'll be verified.
 
 Ask in **one or two structured passes** (group by topic; use the question tool where it fits). Don't drip questions one at a time. Push back on vague answers — "make it fast" → "what P95 latency is acceptable?". If the user says "you have enough, just go", proceed but **log every remaining assumption explicitly** in the plan's *Open Questions / Assumptions* section.
+
+**Lead with what you proved.** Where a Phase 1 spike settled something, state the measured result instead of asking about it — "the export runs in 4.2s over 50k rows, so no background job" respects the owner's time and shows the question is closed. Where a spike came back inconclusive, or where it *contradicted* what the docs or the team believed, that's now one of your sharpest questions: put the evidence in front of the owner and ask how they want to proceed, since a false premise they still hold is exactly what will derail the plan.
 
 ### Phase 3 — Plan
 
@@ -135,8 +158,10 @@ The plan must be decomposition-ready — it's the contract every downstream agen
 | Base SHA | TBD — set in Phase 4 |
 
 ## 1. Objective & success criteria
-## 2. Context & constraints  (grounded findings from Phase 1, with file:line anchors)
-## 3. Approach & key decisions  (alternatives considered; why this one)
+## 2. Context & constraints  (grounded findings from Phase 1, with file:line anchors;
+   spike verdicts with what was measured and under which versions)
+## 3. Approach & key decisions  (alternatives considered; why this one — mark which
+   decisions rest on spike evidence vs. on reasoning)
 ## 4. Work breakdown — implementation tasks
    For each task: an ID, a one-line goal, the **exact files it owns** (disjoint from
    its wave-siblings), dependencies (which task/wave must land first), and acceptance.
@@ -214,6 +239,8 @@ A sub-agent can't pause to ask you questions — its first (and only) instructio
 - **Boundaries** — the exact files this agent owns, plus a firm "touch nothing else — that's another agent's job." Explicit boundaries are what stop parallel agents from colliding or duplicating each other's work.
 
 Example (implementation task): *"**Objective:** add a `TransactionHistory` class. **Output:** a summary of what you changed + any deviations. **Tools/sources:** create `wallet/history.py`; mirror the style of `wallet/account.py:1-40`; no new deps. **Boundaries:** you own `wallet/history.py` only — do not edit `account.py`, the tests, or config; a later task wires it in."*
+
+Example (spike task): *"**Objective:** answer one question — can `pdf-lib@1.17` flatten AcroForm fields on Node 18, or do we need a native binding? **Output:** verdict (yes / no / inconclusive), the exact command and its output that proves it, the versions you tested, and the path to what you built. **Tools/sources:** build a minimal repro in `<scratchpad>/spikes/pdf-flatten/` with its own `package.json` and install there; read `fixtures/sample-form.pdf` from the repo. **Boundaries:** write nothing outside that directory — do not add deps to the repo's `package.json` and do not modify any tracked file. This is throwaway code: I want the finding, not an implementation, so stop as soon as the question is answered and report 'inconclusive' rather than grinding if it isn't."*
 
 ### Runner resolution & fallback
 
