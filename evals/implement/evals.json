@@ -1,0 +1,20 @@
+{
+  "skill_name": "implement",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "e2e-applicable-guestbook-feature",
+      "prompt": "Add a 'sign the guestbook' feature to the guestbook app: POST /entries accepts JSON {name, message} — name is required and must be non-empty after trimming, message is required with 1–280 characters; valid requests return 201 with the created entry {id, name, message, createdAt}, invalid ones return 400 with {error: <reason>}. GET /entries returns all entries as JSON, newest first. The homepage (GET /) must display existing entries (name and message, HTML-escaped), newest first, instead of 'No entries yet.' when entries exist. In-memory storage is fine.",
+      "expected_output": "A completed delivery: plan under docs/plans/ that states e2e applicability and the run recipe; working feature; unit AND e2e tests extended for the new flow; the agent ran both suites itself (including e2e end-to-end) and reported pass/fail split by layer.",
+      "files": ["guestbook-app (seeded Node app with existing unit + e2e harness)"],
+      "assertions": [
+        "Plan exists under docs/plans/ and its test breakdown explicitly addresses e2e: whether it applies, to which flows, and the run recipe (command + startup)",
+        "Feature works over real HTTP (grader boots the app and drives it): valid POST returns 201 with id/name/message/createdAt; whitespace name and 281-char message return 400; GET /entries is newest-first JSON; homepage shows entries HTML-escaped",
+        "E2e test coverage was extended for the new flow: new or modified spec under tests/e2e/ exercising POST/GET /entries and/or the homepage rendering over real HTTP",
+        "Unit test coverage was extended for the new validation/storage logic (new or modified tests under tests/unit/)",
+        "The delivery agent ran the e2e suite itself during the run: final report states e2e results (not just unit) with pass/fail, split by layer",
+        "Full test suite is green when the grader re-runs it independently (npm test and npm run test:e2e both pass in the output repo)"
+      ]
+    }
+  ]
+}
