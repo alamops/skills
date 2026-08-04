@@ -49,13 +49,16 @@ phases:
     runners:
       - { type: claude, model: opus }
 
-  # 6 — parallel agents authoring tests, partitioned by module under test
+  # 6 — parallel agents authoring tests (unit / integration / e2e when applicable),
+  #     partitioned by module under test
   tests_creation:
     strategy: distribute
     runners:
       - { type: claude, model: sonnet }
 
-  # 7 — a single background agent runs the suite and reports results
+  # 7 — a single background agent runs the suites and reports results.
+  #     When e2e is in scope it also owns the full e2e lifecycle (start app,
+  #     seed, run headless, tear down) — consider `sonnet` here for e2e-heavy repos.
   tests_running:
     runners:
       - { type: claude, model: haiku }

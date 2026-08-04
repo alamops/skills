@@ -2,6 +2,8 @@
 
 `AGENTS_CONFIG.yml` lives at the repo root and routes each `/implement` phase to one or more **runners**. It's the one file the user owns to control cost/quality per phase. Read this when creating, validating, or migrating a config.
 
+Note on scope: `tests_creation` and `tests_running` cover **all** test layers — unit, integration, and e2e when the plan includes it. There is no separate e2e phase key; the `tests_running` agent owns the full e2e lifecycle (start the app, seed, run headless, tear down). For e2e-heavy repos, consider `sonnet` rather than `haiku` on `tests_running` — orchestrating servers and diagnosing readiness is real work, not just running a command.
+
 ## Top-level shape
 
 ```yaml

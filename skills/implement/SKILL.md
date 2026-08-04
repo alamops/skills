@@ -80,8 +80,8 @@ Implement progress — <feature>
 - [ ] Phase 3  Plan written & approved (docs/plans/<slug>.md)
 - [ ] Phase 4  Implement (M independent tasks across K agents)
 - [ ] Phase 5  Code review (code-review skill if present, else built-in rubric) — verdict
-- [ ] Phase 6  Tests created (P independent tasks)
-- [ ] Phase 7  Tests run (background agent) — pass/fail
+- [ ] Phase 6  Tests created (P independent tasks; unit/integration + e2e when applicable)
+- [ ] Phase 7  Tests run (background agent; full suite incl. e2e) — pass/fail
 - [ ] Phase 8  Tests fixed (if needed) — re-run to green
 ```
 
@@ -98,7 +98,7 @@ Parallel agents multiply tokens, not just speed — a multi-agent build burns on
 Goal: understand the ground truth before asking the user anything, so your questions are sharp and your plan is grounded.
 
 **You decide how many agents to spawn** based on the surface area of the request. A typical fan-out:
-- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast.
+- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast. Have one of them also capture the **runnability picture**: how the app starts locally (dev command, services, env vars, seed data) and whether an e2e harness exists (framework, test command, fixtures) — Phases 3/6/7 need this to decide whether and how e2e coverage runs.
 - **Git-history agent** — how similar features were built here before, recent changes to the files in scope, prior migrations, reverted attempts, `CHANGELOG`/PR patterns. Uses `git log`, `git blame`, `git show`.
 - **Best-practices agent** — web research (if web tools are available) on current recommended patterns, library APIs, version-specific gotchas for the technologies in play. Confirm live versions rather than trusting memory.
 - **Spike agent(s)** — throwaway code that *tests* an assumption the other three can only assert. Spawn these only when a load-bearing unknown survives the research above; see *Spikes* below.
@@ -135,7 +135,7 @@ Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing un
 - Data/contract changes, migrations, enum propagation.
 - Non-functional constraints (perf budgets, security/tenancy, reliability, observability).
 - Dependencies, feature flags, rollout, worst-case failure mode.
-- Acceptance bar (what "done" means) and how it'll be verified.
+- Acceptance bar (what "done" means) and how it'll be verified — including which flows deserve e2e coverage and any environment constraints for running them (test accounts, sandbox credentials, external services).
 
 Ask in **one or two structured passes** (group by topic; use the question tool where it fits). Don't drip questions one at a time. Push back on vague answers — "make it fast" → "what P95 latency is acceptable?". If the user says "you have enough, just go", proceed but **log every remaining assumption explicitly** in the plan's *Open Questions / Assumptions* section.
 
@@ -166,6 +166,9 @@ The plan must be decomposition-ready — it's the contract every downstream agen
    For each task: an ID, a one-line goal, the **exact files it owns** (disjoint from
    its wave-siblings), dependencies (which task/wave must land first), and acceptance.
 ## 5. Work breakdown — test tasks  (unit / integration / e2e; which impl task each covers)
+   State explicitly whether e2e applies — and to which user flows — or why it doesn't.
+   If it applies, record the run recipe from Phase 1: e2e command, how the app and its
+   services start, seed data, and any credentials/environment prerequisites.
 ## 6. Execution waves  (which tasks run in parallel; the barrier between waves)
 ## 7. Blast radius & risks  (callers, sibling paths, migrations, rollback, feature flags)
 ## 8. Open questions / assumptions  (anything the owner deferred)
@@ -215,13 +218,27 @@ Triage the findings yourself. Fold **must-fix** items (bugs, security, correctne
 
 Same mechanics as Phase 4, using the `tests_creation` runner(s) and the plan's **test work breakdown**. Partition test tasks by the module/file under test so agents don't collide. Each agent extends the project's existing test setup and fixtures (from Phase 1 findings) rather than inventing a parallel harness, and covers the acceptance criteria plus negative paths for its assigned area.
 
+**Include e2e coverage whenever it's applicable — not as a bonus, but as part of "tested".** Unit and integration tests validate pieces in isolation; a class of bugs only surfaces in the assembled system — broken wiring between layers, auth/session behavior, migrations meeting real data, a UI flow that dies on the second step. For those, an e2e test is often the *only* automated way to catch the bug before a user does. E2e applies when the feature has a user-visible flow or crosses a process boundary (UI→API→DB, service→service, CLI→filesystem) and the app can be run locally per Phase 1's runnability findings. It doesn't apply to pure library/helper changes fully exercised by unit tests — in that case the plan says so explicitly and moves on; "not applicable" is a recorded decision, never a silent omission.
+
+When it applies: extend the project's existing e2e harness (Playwright, Cypress, Detox, supertest-against-a-live-server, whatever Phase 1 found) with tests for the feature's critical paths — the happy path plus the failure states a real user could plausibly hit. Keep them deterministic: proper readiness waits and seeded data, not sleeps and shared mutable state. If the repo has **no** e2e harness, don't invent heavyweight infrastructure unilaterally — raise it in the plan (Phase 3), and if approved, stand up the minimal ecosystem-standard harness scoped to the feature's flows.
+
 ### Phase 7 — Tests running
 
 Spawn **one background agent** on the `tests_running` runner to run the suite (the project's test command — discover it in Phase 1) and report back: pass/fail counts, the failing tests, and the relevant output. Background is ideal here — you'll be notified when it finishes. If the command is unknown, ask the user once for it (and note it in the plan for next time).
 
+**When the plan includes e2e, the agent runs the e2e suite too — entirely by itself.** "It needs a running app" is a setup step for the agent, not a reason to hand the run back to the human. The agent owns the whole lifecycle, following the run recipe recorded in the plan:
+1. **Prepare** — install what's missing (e.g. `npx playwright install`), provision local services (db, queue), seed fixture data.
+2. **Start** — launch the app and its dependencies as background processes and *wait for readiness* (poll the health endpoint or port; don't fire tests at a half-booted server).
+3. **Run** — execute the e2e command headless; on failure, capture the artifacts that make failures diagnosable (screenshots, traces, server logs), not just the exit code.
+4. **Tear down** — stop the processes it started, so a re-run begins clean.
+
+Only when a step is *genuinely* impossible to automate — real payment gateways, physical devices, human 2FA, credentials the agent doesn't hold — does it stop short. Even then it doesn't abandon the run: it automates everything up to that point, runs the **maximal subset** that can pass without the blocked step, and reports exactly what remains as a precise manual runbook (commands, URLs, expected results) so the human's share is minutes of clicking, not detective work. A partially-automated e2e run with a clear handoff beats a skipped one every time.
+
 ### Phase 8 — Tests fixes (conditional)
 
 If Phase 5 surfaced must-fix findings, or Phase 7 reported failures, spawn fix agents exactly like Phase 4 — independent, file-disjoint tasks on the `tests_fixes` runner, each scoped to one failure cluster or finding. Then **re-run Phase 7**. Loop until green or until you hit a wall you can't resolve without the user — at which point stop and report the remaining failures with evidence, rather than looping forever. Cap at a sensible number of rounds (say 3) before checking in.
+
+For a failing **e2e** test, have the runner re-run it once before dispatching a fix agent — e2e is the flakiest layer, and the fix differs by diagnosis: a consistent failure means the product code (or the test's assumptions) is wrong; a pass-on-retry means the *test* is at fault, and the fix agent should repair the flake properly (readiness waits, deterministic seeds — not sleeps or retries baked into the test).
 
 ## Spawning runners
 
@@ -257,7 +274,7 @@ When the loop completes, give the user a tight wrap-up:
 - **Plan:** `docs/plans/<slug>.md`.
 - **Implemented:** the waves/tasks that ran and which runner did each.
 - **Review verdict:** counts by severity + must-fixes addressed.
-- **Tests:** final pass/fail with the command used.
+- **Tests:** final pass/fail with the command used, split by layer (unit/integration vs e2e). If e2e was skipped as not applicable, say so and why; if any e2e step couldn't be automated, include the manual runbook for the remainder.
 - **Open items:** anything deferred, any assumptions logged, any remaining failures you couldn't resolve.
 - **Next step:** e.g. "review `docs/plans/<slug>.md`", or "run `/code-review` on the branch before pushing".
 
