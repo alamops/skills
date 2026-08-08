@@ -1,0 +1,51 @@
+{
+  "skill_name": "implement",
+  "evals": [
+    {
+      "id": 0,
+      "name": "multiharness-config",
+      "prompt": "/implement --config — I drive this skill from both Claude Code and Codex depending on what I'm doing. When I'm running in Claude Code I want the code review done by opus. When I'm running in Codex I want the code review done by gpt 5.6 sol. Set that up.",
+      "expected_output": "A valid AGENTS_CONFIG.yml whose code_review phase resolves to opus on a claude_code host and gpt-5.6-sol on a codex host, plus a resolved-config summary naming the detected host.",
+      "files": [],
+      "assertions": [
+        "AGENTS_CONFIG.yml is written and parses as valid YAML",
+        "Config expresses per-host routing (a host/binding axis), not a single flat runner list",
+        "code_review resolves to opus when the host is Claude Code",
+        "code_review resolves to gpt-5.6-sol when the host is Codex",
+        "No active (non-comment) command uses the removed --full-auto flag; explaining in prose why the flag is dead is correct and must not be penalized",
+        "Any Codex command shown with a prompt payload delivers the brief via stdin rather than as a bare filename argument (vacuously true if the run only shows abbreviated fragments)",
+        "The response states which harness/host was detected and shows the resolved routing"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "v1-migration",
+      "prompt": "I already have an implement config in this repo but I want to add Codex to it — I want gpt-5.6-sol doing my code reviews when I'm working in Codex. Also can you sanity-check the existing config while you're in there, something about it feels off.",
+      "expected_output": "The v1 config migrated to the per-host schema with a Codex code_review binding on gpt-5.6-sol, and an explicit callout of the two latent defects in the original (--full-auto no longer exists; a bare {TASK_FILE} arg sends Codex the filename as its prompt).",
+      "files": ["fixtures/v1-repo/AGENTS_CONFIG.yml"],
+      "assertions": [
+        "Final AGENTS_CONFIG.yml parses as valid YAML",
+        "No active (non-comment) command in the final config still uses --full-auto; quoting it in a comment to explain what was fixed is correct, not a failure",
+        "The response explicitly identifies --full-auto as invalid on the current codex-cli",
+        "The response explicitly identifies the bare {TASK_FILE} argument as sending Codex the filename instead of the brief",
+        "code_review has a Codex binding on gpt-5.6-sol",
+        "The pre-existing Claude routing (opus review, sonnet build) is preserved rather than silently changed"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "codex-transport",
+      "prompt": "I'm about to drive /implement from inside Codex rather than Claude Code for this repo. Before I do — walk me through exactly what each phase will resolve to, and show me the literal shell command you'd run to spawn the code review agent and the implementation agent. I want to paste those commands into my terminal myself to check they work.",
+      "expected_output": "A resolved table for all seven phases under the Codex host, plus literal codex exec commands that actually parse against codex-cli 0.147.0, deliver the brief on stdin, and use a read-only sandbox for review vs workspace-write for implementation.",
+      "files": [],
+      "assertions": [
+        "All seven phases appear in the resolved table",
+        "The code review command invokes codex exec with the gpt-5.6-sol model",
+        "No command contains the removed --full-auto flag",
+        "Commands deliver the brief via stdin (trailing - with a redirect or pipe) rather than a bare file path",
+        "code_review uses a read-only sandbox and implementation uses workspace-write",
+        "Every emitted command parses successfully against the installed codex-cli argument parser"
+      ]
+    }
+  ]
+}

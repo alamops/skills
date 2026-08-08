@@ -22,7 +22,7 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 
 1. **You plan; agents labor.** Investigation, code edits, test writing, and test running fan out to sub-agents. Synthesis, interrogation, planning, task decomposition, conflict-free partitioning, review triage, and merge decisions stay with you. Never delegate a decision you should own.
 2. **Every delegated task must be independently completable.** When you fan out agents in a wave, each agent's task must have *no dependency on another in-flight agent* and must touch a **disjoint set of files** from its siblings. If two pieces of work would edit the same file, either sequence them into different waves or isolate them (see *Avoiding collisions*). This is the single most important constraint — parallel agents that collide corrupt each other's work.
-3. **Honor the config.** Resolve each phase's runner(s) from `AGENTS_CONFIG.yml`. Don't silently substitute a different model. If a configured runner is unavailable, fall back per the *Runner resolution* rules and **tell the user you did**.
+3. **Honor the config.** Detect the **host harness** first — it decides how a runner is reachable — then resolve each phase's runner(s) from `AGENTS_CONFIG.yml`. Don't silently substitute a different model. If a configured runner is unavailable, fall back per the *Runner resolution* rules and **tell the user you did**.
 4. **Gate on the human at the two real decision points** — *unless running autonomously* (see *Autonomous mode*). Stop for the user after **investigation** (to grill and confirm) and after **planning** (to approve before any code is written). Don't stop for approval at every micro-step — that defeats the purpose.
 5. **Persist the plan.** The plan is a durable artifact saved under `docs/plans/`, not just a chat message. Everything downstream references it.
 6. **Read-only until the plan is approved.** Phases 1–3 must not modify the repo. The first write to a tracked file happens in Phase 4, after the user signs off. Investigation *spikes* are not an exception to this — they write and run throwaway code, but only inside the scratchpad, never in the working tree (see Phase 1).
@@ -41,18 +41,42 @@ Everything else (investigate → implement → review → tests → run → fix)
 
 ## Phase 0 — Configuration
 
-`AGENTS_CONFIG.yml` (repo root) maps each phase to one or more **runners**. Read `references/agents-config.md` for the full schema, placeholders, and presets; the canonical starting point is `assets/AGENTS_CONFIG.example.yml`.
+`AGENTS_CONFIG.yml` (repo root) routes each phase to a model. Read `references/agents-config.md` for the full schema, transport recipes, and presets; the canonical starting point is `assets/AGENTS_CONFIG.example.yml`.
 
-A runner is one of:
-- **`type: self`** — you, the orchestrator, do the phase inline in this session (no sub-agent). Only valid for `planning` and the interactive parts.
-- **`type: claude`** — a native Claude Code sub-agent spawned via the Agent tool, with `model:` one of `opus | sonnet | haiku | fable` (these map directly to the Agent tool's `model` parameter).
-- **`type: shell`** — an external CLI harness (Codex, Gemini, Aider, etc.) spawned via Bash. Carries a `command:` template with placeholders (`{PROMPT}`, `{TASK_FILE}`, `{CWD}`) and a human-readable `model:` label.
+Two ideas carry the schema, and understanding them is most of the job:
 
-When a phase lists **more than one runner**, the phase `strategy` decides what happens:
+1. **A logical model is a role, not a model ID.** The config names roles (`reviewer`, `builder`, `scout`) under `models:` and binds each one *per host*. Phases then say `use: reviewer`. This is what lets a single config mean "review with Opus when I'm driving from Claude Code, review with GPT-5.6 Sol when I'm driving from Codex" without writing out seven phases per harness.
+2. **A runner `type` names which agent, not how to reach it.** You own the transport, so the user never hand-writes a command template for a CLI you already know.
+
+### Detect the host first
+
+`host` is which harness **you** are running in — not which model you're calling. It's the axis that decides whether `type: claude` can use the native Agent tool at all, so resolve it before anything else. With `host: auto`, take the first signal that answers:
+
+1. An explicit non-`auto` `host:` in the config, or a `--host <name>` argument. Pinning always wins.
+2. **Capability self-check — lead with this.** Do you have a native sub-agent spawn tool (the `Agent` tool) in your own tool list? If yes → `claude_code`. It's structural, so unlike an env var it can't lie, and you can read it straight off your context without running anything.
+3. Environment probes as corroboration: `CLAUDECODE=1` → `claude_code`; `CODEX_HOME` or a `codex` process ancestor → `codex`. Hints only — `CODEX_HOME` is frequently unset under Codex, so its absence proves nothing.
+4. Ask the user once, then offer to pin the answer into `host:`.
+
+State the detected host in the resolved-config table you show at the start of a run, and name the signal when you fell through to step 3 or 4. A config that quietly resolved to the wrong host otherwise surfaces as a mysteriously misbehaving phase much later.
+
+### Runner types
+
+| `type` | What it is | How you reach it |
+| --- | --- | --- |
+| `self` | You, inline in this session | No sub-agent. Only valid for `planning` and interactive parts. |
+| `claude` | A Claude model (`opus\|sonnet\|haiku\|fable`) | Native Agent tool on `claude_code`; otherwise shell out to `claude -p` |
+| `codex` | The Codex CLI (`gpt-5.6-sol`, `gpt-5.6-terra`, …) | `codex exec` — you own the command shape, the config supplies only the model |
+| `shell` | Any CLI with no built-in recipe | The binding's `command:` template |
+
+`type: claude` on a non-Claude host is **not** a failure and **not** a fallback — the user asked for that model and it still runs, just over `claude -p` instead of the Agent tool. Say which transport you used, not which model you substituted, because you didn't substitute one.
+
+When a phase resolves to **more than one runner** — via `use: [a, b]`, or `cross_host: true` — the phase `strategy` decides what happens:
 - **`distribute`** (default) — you split the phase into independent tasks and spread them across the runners in parallel. Each task runs once. Maximizes throughput.
 - **`race`** — you run the *same* task on every runner, then judge the outputs yourself and keep the best (optionally grafting good ideas from the runners-up). Higher cost, higher quality. Reserve for genuinely hard or high-stakes work. **Two shapes of race:** for *generative* tasks (implementation, test authoring) the runners produce competing artifacts — pick the strongest whole. For *analytical* tasks (code review, verification) they produce competing *judgments* — don't pick one report and discard the other; take the **union of distinct findings** and judge each on its own merits (a finding only one reviewer raised can still be real; a severity only one assigned is a prompt to re-check, not to average).
 
 You may override the configured strategy per task when the config's `defaults.allow_orchestrator_override` is `true`: distribute the routine tasks, race the one or two that are risky or ambiguous.
+
+**Default to one harness per session.** A role resolves to the current host's binding only — that's the either/or behavior the schema is built around, and it keeps cost predictable. `cross_host: true` opts a phase into running *every* reachable binding at once. It earns its cost on read-only phases (`code_review`, `investigate`), where two harnesses reading the same tree have no side effects and the merged findings are strictly better. On a **writing** phase it puts two harnesses in one working tree simultaneously — see *Avoiding collisions* in Phase 4 before enabling it there.
 
 ### First-time setup (no config present, or `--config`)
 
@@ -64,9 +88,14 @@ Keep this short and friendly — don't make the user hand-author YAML.
    - **quality** — planning `self`, `opus` on implement, review, and tests-fixes; `sonnet` on investigate + tests-creation; `haiku` on test-running.
 
    Generate the summary you show the user *from* the chosen preset object rather than hand-describing it, so the description can't drift from what you write to disk.
-2. Ask whether they want to plug in any **external harness** (e.g. `gpt-5.4-mini` via Codex, Gemini) for any phase. If yes, capture the CLI command template and which phase(s) it joins, and set that phase's `strategy` (distribute vs race). If they don't mention one, keep it Claude-only — don't invent CLIs.
-3. Write `AGENTS_CONFIG.yml` to the repo root, echo the resolved config back in a short table, and tell them they can re-run `/implement --config` anytime.
-4. If this was a `--config` run, stop here. If it was a real task, continue to Phase 1.
+2. Ask which **harnesses** they drive `/implement` from — just Claude Code, or also Codex or another CLI. If they name a second one, add a binding for it under each role rather than a second copy of the phase list, and ask which models they want there (e.g. `reviewer` → `gpt-5.6-sol` on Codex). If they only ever use one harness, write each role as a single `any:` binding and don't mention hosts again — the extra structure shouldn't tax someone who'll never need it.
+
+   **Put Claude bindings on `any:`, and name a host only to override it.** A `type: claude` binding works on every harness (native Agent tool here, `claude -p` elsewhere), so `any:` costs nothing and covers harnesses the user hasn't thought of yet. A config bound only to `claude_code:` and `codex:` looks complete but silently degrades every phase to a generic default the first time it runs anywhere else. Before you write the file, check what it resolves to on a host that isn't in it.
+3. For any CLI you have **no built-in recipe** for, capture a `shell` binding with its `command:` template. Don't invent CLIs the user never mentioned, and don't guess flags for a CLI you can't verify — check `--help` first, or ask.
+4. Write `AGENTS_CONFIG.yml` to the repo root, echo the resolved config back in a short table (host, phase, role, resolved runner), and tell them they can re-run `/implement --config` anytime.
+5. If this was a `--config` run, stop here. If it was a real task, continue to Phase 1.
+
+**If you find a `version: 1` config**, it still loads — read every inline runner as an anonymous role bound to `any`, which reproduces the old behavior exactly. Offer to migrate it, and say why it's worth doing: v1 examples shipped a Codex template using `--full-auto` (removed from current `codex-cli`) and passed `{TASK_FILE}` as a bare argument, which sends Codex the *filename* as its prompt instead of the brief. Migration is mechanical — `references/agents-config.md` has the steps.
 
 ## Delivery phases
 
@@ -103,7 +132,7 @@ Goal: understand the ground truth before asking the user anything, so your quest
 - **Best-practices agent** — web research (if web tools are available) on current recommended patterns, library APIs, version-specific gotchas for the technologies in play. Confirm live versions rather than trusting memory.
 - **Spike agent(s)** — throwaway code that *tests* an assumption the other three can only assert. Spawn these only when a load-bearing unknown survives the research above; see *Spikes* below.
 
-Spawn the research agents **in one turn** so they run concurrently, using the `investigate` runner(s). Research agents are read-only — prefer the `Explore` agent type, which can still run git and web (it has Bash/WebSearch/WebFetch) but has no edit tools, so a research agent structurally cannot modify code. Each agent returns a tight structured brief (findings + file:line anchors + open questions), not a file dump.
+Spawn the research agents **in one turn** so they run concurrently, using the `investigate` runner(s). Research agents are read-only — on a `claude` runner prefer the `Explore` agent type, which can still run git and web (it has Bash/WebSearch/WebFetch) but has no edit tools, so a research agent structurally cannot modify code. On an external CLI runner there's no `Explore` type; the equivalent guarantee is the sandbox flag (`--sandbox read-only` for Codex), so make sure it's actually set rather than assuming the brief's "don't edit anything" will hold. Each agent returns a tight structured brief (findings + file:line anchors + open questions), not a file dump.
 
 **Spikes usually form a second, smaller wave**, because you can only tell which assumptions are still unresolved once the research briefs are back — launching them blind means spiking questions the docs would have answered for free. The exception is an unknown that's obvious from the request itself (the user names a library nobody here has used, or asks for something whose feasibility is the whole question): put that spike in the first wave and save a round-trip. Either way, if you spike more than one question, spawn those agents together.
 
@@ -192,7 +221,7 @@ Give each agent a **self-contained brief**: the objective, the exact files it ow
 - **Respect wave barriers.** Wait for all agents in a wave to finish before starting the next wave, since later waves depend on earlier ones. Within a wave there are no dependencies, so they run fully concurrently.
 - **distribute vs race.** Under `distribute`, each task goes to one runner (round-robin or by suitability — give the cheaper runner the mechanical tasks, the stronger one the subtle tasks). Under `race`, send the same task to every runner and pick the best result yourself.
 - **Avoiding collisions.** The plan already partitions files by task, so same-wave agents shouldn't collide *on source files*. Two hazards remain:
-  - **Shared tooling side effects.** File-disjointness isn't enough when a wave mixes runner types. A `shell` runner (e.g. `codex … --full-auto`) and an in-tree `claude` sub-agent run in the **same working tree** at once, and the external CLI may rewrite shared surfaces the file-partition never mentioned — formatters, `package-lock`/lockfiles, the git index, generated code. Whenever a `shell` runner shares a wave with any other runner, give it its own checkout (worktree isolation) or serialize it after the in-tree agents; don't run a full-auto external CLI concurrently with an in-tree agent.
+  - **Shared tooling side effects.** File-disjointness isn't enough when a wave mixes runner types. An external CLI runner (`codex`/`shell`) and an in-tree `claude` sub-agent occupy the **same working tree** at once, and the CLI may rewrite shared surfaces the file partition never mentioned — formatters, `package-lock`/lockfiles, the git index, generated code. Whenever an external CLI runner shares a wave with any other runner, give it its own checkout (worktree isolation) or serialize it after the in-tree agents. This is also why `cross_host: true` belongs on read-only phases: on a writing phase it guarantees exactly this collision.
   - **Unavoidable shared files.** If two tasks must both edit a central file (e.g. a registry), either (a) sequence them into separate waves, or (b) run the colliding agents with `isolation: "worktree"`. Prefer clean partitioning — reach for worktrees only when partitioning is genuinely impossible.
   - **Merging worktrees.** Isolated agents commit on their own branch; afterward **you** merge them into the working branch one at a time (`git merge` per worktree) and resolve any conflicts yourself. Because merging is the step most likely to strand or clobber work, treat it as a last resort behind re-partitioning.
 - **Checkpoint after each wave.** Do a quick sanity pass (build/typecheck if cheap), then commit the wave (`wave N: <summary>`). The plan plus these commits are your resume points: if a later wave, the review, or a test run fails, you pick up from the last green wave instead of restarting the build — never discard completed work on a downstream failure.
@@ -208,6 +237,9 @@ Spawn a `general-purpose` agent on the `code_review` runner to review the diff p
 **Which rubric:** decide *before* spawning the agent by checking your own available-skills list (shown at the top of your context) — skill availability is session-scoped, not repo-scoped, so you can see it directly rather than trusting the sub-agent to.
 - If a `code-review` skill is listed **and** the user/config hasn't asked for strict standalone behavior → instruct the agent to load and follow it.
 - Otherwise (`/implement` is standalone by design) → hand the agent the built-in rubric below.
+
+**A skill lives in your harness, not in an external CLI.** If the review runner resolved to `codex`/`shell`, that subprocess cannot load a `code-review` skill no matter what you tell it — it has no access to your skill list. Paste the rubric text into the brief instead of naming a skill the agent can't reach. Getting this wrong produces a review that silently falls back to the agent's own instincts while your report claims the skill's rubric was applied.
+
 Either way, **require the agent to state in its report which rubric it actually used**, so you can confirm the intended path was taken rather than infer it.
 
 > **Built-in review rubric (fallback):** walk every changed file and flag, with file:line evidence — **bugs** (logic errors, unhandled edge cases, error-handling gaps); **security** (tenant isolation, authorization, atomicity/TOCTOU, retry safety, multi-step flow completeness, orphaned state, secrets/input validation); **performance** (in-memory aggregation, sequential fan-out, duplicate scans); **consistency** (enum/validation drift, schema↔code column drift, duplicated business rules); and **blast radius** (callers, sibling paths, retries, stale state, downstream systems). Report problems only — no "looks good" findings — each with category, severity, file, line, and a concrete fix. Do **not** flag absent tests (Phase 6 adds them). Read-only: never edit code during review.
@@ -242,9 +274,21 @@ For a failing **e2e** test, have the runner re-run it once before dispatching a 
 
 ## Spawning runners
 
-**Claude runner (`type: claude`):** use the Agent tool. Set `subagent_type` (`Explore` for read-only investigation, `general-purpose` for implementation/tests/review), `model` to the configured alias (`opus|sonnet|haiku|fable`), and `run_in_background: false` when you need the result inline before the next wave (Phases 4/6), or leave it in the background for Phase 7. Launch all agents of one wave in a single message so they run concurrently.
+**`type: claude` on a `claude_code` host:** use the Agent tool. Set `subagent_type` (`Explore` for read-only investigation, `general-purpose` for implementation/tests/review), `model` to the configured alias (`opus|sonnet|haiku|fable`), and `run_in_background: false` when you need the result inline before the next wave (Phases 4/6), or leave it in the background for Phase 7. Launch all agents of one wave in a single message so they run concurrently.
 
-**Shell runner (`type: shell`):** write the task brief to a file under the scratchpad (or `docs/plans/tasks/`), then invoke the CLI via Bash with the config's `command` template, substituting `{PROMPT}` / `{TASK_FILE}` / `{CWD}`. Use `run_in_background: true` for long runs and collect the output when it completes. **Before the first shell-runner call in a phase, verify the CLI exists** (`command -v <bin>`). If it's missing, fall back per below and tell the user.
+**`type: claude` on any other host:** shell out — `claude -p --model <alias> --add-dir {CWD} --permission-mode <plan|acceptEdits> --output-format text`, brief on stdin. Use `plan` for read-only phases and `acceptEdits` for writing ones.
+
+**`type: codex`:** write the brief to a file under the scratchpad, then run
+
+```
+codex exec -m <model> -C <cwd> --sandbox <mode> [--approve-for-me] -o <output-file> - < <brief-file>
+```
+
+The trailing `-` is load-bearing: it makes Codex read the brief from **stdin**. `codex exec` treats a bare positional argument as the prompt *text*, so passing the brief's path alone would send Codex the literal string `/path/to/brief.md` and nothing else — a failure that looks like the model ignoring its instructions. `-o` captures the final message to a file, which beats scraping it out of mixed stdout. Sandbox follows the phase: `read-only` for `investigate`/`code_review`, `workspace-write --approve-for-me` for the writing phases.
+
+**`type: shell`:** substitute the config's `command` template — `{PROMPT}` / `{TASK_FILE}` / `{CWD}` / `{OUTPUT_FILE}` — and pipe `stdin:`'s file in if the binding sets one. Same trap as above generalizes: **naming a file in argv doesn't make a CLI read it**, so prefer stdin for long briefs and `{PROMPT}` only for short ones.
+
+For every external CLI runner, use `run_in_background: true` on long runs and collect the output when it completes. **Before the first such call in a phase, verify the binary exists** (`command -v <bin>`). If it's missing, fall back per below and tell the user. If a command fails on *argument parsing*, the CLI has moved on from the recipe above — check its `--help`, adapt, and tell the user the built-in recipe is stale rather than silently retreating to another model.
 
 ### Writing a delegated brief
 
@@ -261,12 +305,18 @@ Example (spike task): *"**Objective:** answer one question — can `pdf-lib@1.17
 
 ### Runner resolution & fallback
 
-All fallbacks resolve to `defaults.fallback_model` (which itself defaults to `sonnet`) — never a hardcoded alias — so a user who sets `fallback_model: opus` gets that honored.
+Resolve a phase in three steps: look up its `use:` role(s) in `models:`; take the binding for the **detected host**, else the role's `any:` binding; if neither exists, use `defaults.fallback` (itself a role name, resolved the same way). All fallbacks route through `defaults.fallback` — never a hardcoded alias — so a user who sets it gets that honored.
 
-- A configured `shell` runner whose CLI is not installed → fall back to that runner's `unavailable_fallback`, else the phase's first `claude` runner, else `defaults.fallback_model`. Announce the substitution.
-- A `claude` runner with an unrecognized model alias → fall back to `defaults.fallback_model` and warn.
-- `type: self` on a phase other than `planning` → treat as a `defaults.fallback_model` claude runner and warn (only planning/interaction can be done inline).
+- An external CLI runner whose binary isn't installed → that binding's `unavailable_fallback`, else `defaults.fallback`.
+- A `claude` runner with an unrecognized model alias → `defaults.fallback`, warn.
+- A role named in `use:` that isn't defined in `models:` → `defaults.fallback`, warn.
+- `type: self` on a phase other than `planning` → treat as a `defaults.fallback` runner and warn (only planning/interaction can be done inline).
 - Missing phase entry entirely → use the `balanced` preset's value for that phase.
+- `strategy: race` with one resolved runner → a normal single run; nothing to race.
+
+**Announce every substitution.** A silent downgrade is the worst failure mode here: the run completes, looks fine, and is quietly worse than what the user configured.
+
+**A model failing for any *other* reason is not a fallback trigger.** A bad model slug, expired auth, or exhausted quota should surface as the error it is — the fix belongs to the user, and quietly rerouting to a different model hides the one piece of information they need.
 
 ## Reporting back
 
