@@ -1,6 +1,6 @@
 ---
 name: implement
-description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, or `/implement --config`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and test until green. Same skill when they hand over a plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces (API, web, mobile), or to choose which model runs each step (model routing / agents config), even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, git chores like rebases and merge conflicts, or scoping a standalone time-boxed spike whose output is an answer, not shipped code.
+description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, `/implement --config`, or `/implement --update`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and test until green. Same skill when they hand over a plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces (API, web, mobile), or for anything about `AGENTS_CONFIG.yml` — choosing which model runs each step (model routing / agents config), routing phases per harness (Claude Code, Codex, Cursor, Gemini CLI, Kimi, Grok), or upgrading/migrating an existing config to the current schema — even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, git chores like rebases and merge conflicts, or scoping a standalone time-boxed spike whose output is an answer, not shipped code.
 ---
 
 # Implement — multi-agent feature delivery
@@ -14,7 +14,10 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 | Invocation | What to do |
 | --- | --- |
 | `/implement --config` (or "reconfigure implement") | Jump straight to **Phase 0 — Configuration** and rewrite `AGENTS_CONFIG.yml`. Do not run a delivery. |
+| `/implement --update` (or "update my implement config") | Bring an existing `AGENTS_CONFIG.yml` up to the current schema — see **Phase 0 — Updating**. Do not run a delivery, and do not change models the user already chose. |
 | `/implement <task>` or any end-to-end build request | If `AGENTS_CONFIG.yml` is missing, run **Phase 0** first, then continue into the delivery phases. If it exists, load it and go straight to **Phase 1**. |
+
+`--config` and `--update` are different jobs and shouldn't be collapsed: `--config` re-decides routing from scratch (the user wants different models), while `--update` preserves every routing decision already made and only moves the file onto a newer schema. Reaching for `--config` when the user asked to update would throw away tuning they never agreed to lose.
 
 **When it's not this skill.** Phase 1 runs small spikes *inside* an investigation, which is a different job from taking on a **standalone, time-boxed spike** — and now that this skill talks about spikes, it's easy to mistake one for the other. The tell is what the user wants at the end: *working code that ships* (this skill) versus *a finding they'll act on later* — a feasibility answer, a benchmark number, a throwaway prototype (not this skill). If it's the latter, say so and hand it back instead of opening an eight-phase delivery; a spike that gets run as a feature build wastes the timebox that made it a spike.
 
@@ -54,8 +57,10 @@ Two ideas carry the schema, and understanding them is most of the job:
 
 1. An explicit non-`auto` `host:` in the config, or a `--host <name>` argument. Pinning always wins.
 2. **Capability self-check — lead with this.** Do you have a native sub-agent spawn tool (the `Agent` tool) in your own tool list? If yes → `claude_code`. It's structural, so unlike an env var it can't lie, and you can read it straight off your context without running anything.
-3. Environment probes as corroboration: `CLAUDECODE=1` → `claude_code`; `CODEX_HOME` or a `codex` process ancestor → `codex`. Hints only — `CODEX_HOME` is frequently unset under Codex, so its absence proves nothing.
+3. Environment probes as corroboration: `CLAUDECODE=1` → `claude_code`; `CODEX_HOME` or a `codex` process ancestor → `codex`; `CURSOR_API_KEY` / a `cursor-agent` ancestor → `cursor`; `GEMINI_SANDBOX` or a `gemini` ancestor → `gemini`; a `kimi` or `grok` process ancestor → those. Hints only — several of these vars are optional and frequently unset, so an absent var proves nothing. The process-ancestry check is the more reliable half.
 4. Ask the user once, then offer to pin the answer into `host:`.
+
+Host names are the same tokens as the runner types (`claude_code`, `codex`, `cursor`, `gemini`, `kimi`, `grok`), because any of these harnesses can both *host* `/implement` and *be called by* it. Don't confuse the two roles: `host: cursor` means Cursor is driving you, while a `cursor:` binding means Cursor is the harness you'd call for that role when running under that host.
 
 State the detected host in the resolved-config table you show at the start of a run, and name the signal when you fell through to step 3 or 4. A config that quietly resolved to the wrong host otherwise surfaces as a mysteriously misbehaving phase much later.
 
@@ -65,8 +70,16 @@ State the detected host in the resolved-config table you show at the start of a 
 | --- | --- | --- |
 | `self` | You, inline in this session | No sub-agent. Only valid for `planning` and interactive parts. |
 | `claude` | A Claude model (`opus\|sonnet\|haiku\|fable`) | Native Agent tool on `claude_code`; otherwise shell out to `claude -p` |
-| `codex` | The Codex CLI (`gpt-5.6-sol`, `gpt-5.6-terra`, …) | `codex exec` — you own the command shape, the config supplies only the model |
+| `codex` | The Codex CLI | `codex exec` |
+| `cursor` | The Cursor Agent CLI | `cursor-agent -p` (binary is `cursor-agent`, not `cursor`) |
+| `gemini` | The Gemini CLI | `gemini -p` |
+| `kimi` | The Kimi Code CLI | `kimi -p` |
+| `grok` | The Grok Build CLI | `grok -p` |
 | `shell` | Any CLI with no built-in recipe | The binding's `command:` template |
+
+Every external type takes just a `model:` — you build the command. **Read `references/harnesses.md` before spawning one**: it carries the literal invocation per CLI plus a capability matrix, and these CLIs differ in ways that decide which phases each can safely own. Three of them (`gemini`, `kimi`, `grok`) have **no working-directory flag**, so you must set the process cwd yourself; inventing a `--cd` for them fails argument parsing. Prompt delivery differs too — `codex` and `claude` read stdin, the rest take the brief as a positional argument.
+
+**`grok` has no headless read-only mode.** Its plan mode is a TUI affordance, not a flag, so a Grok runner on `investigate` or `code_review` is held only by its brief. Every other type has an enforced read-only mode. When a config routes Grok to a read-only phase, say plainly that the guarantee is weaker there and offer another harness if one is configured — a user who believes a reviewer *cannot* write will not audit it as if it can.
 
 `type: claude` on a non-Claude host is **not** a failure and **not** a fallback — the user asked for that model and it still runs, just over `claude -p` instead of the Agent tool. Say which transport you used, not which model you substituted, because you didn't substitute one.
 
@@ -95,7 +108,17 @@ Keep this short and friendly — don't make the user hand-author YAML.
 4. Write `AGENTS_CONFIG.yml` to the repo root, echo the resolved config back in a short table (host, phase, role, resolved runner), and tell them they can re-run `/implement --config` anytime.
 5. If this was a `--config` run, stop here. If it was a real task, continue to Phase 1.
 
-**If you find a `version: 1` config**, it still loads — read every inline runner as an anonymous role bound to `any`, which reproduces the old behavior exactly. Offer to migrate it, and say why it's worth doing: v1 examples shipped a Codex template using `--full-auto` (removed from current `codex-cli`) and passed `{TASK_FILE}` as a bare argument, which sends Codex the *filename* as its prompt instead of the brief. Migration is mechanical — `references/agents-config.md` has the steps.
+**If you find an older config**, it still loads — every version is forward-compatible, and a `version: 1` file reads as anonymous roles bound to `any`. Don't rewrite it mid-task; mention that `/implement --update` exists and carry on with the delivery.
+
+### Updating (`--update`)
+
+The current schema version is **3** (`references/agents-config.md` has the version table). `--update` moves a config forward **without changing a single model the user already chose** — that constraint is the whole value of the command. An update that silently re-routes a phase is indistinguishable from a bug, and there'd be no reason to trust it again.
+
+1. **Read and report** the config's version and the current one. If they already match, say so and don't manufacture work — but still run the drift scan in step 3, since a current-version config can still contain stale commands.
+2. **Explain what's new since *their* version**, framed as what it changes for them rather than as a changelog. A v2 user should hear "Cursor, Gemini, Kimi and Grok are first-class now, so that `shell` block you wrote for Gemini collapses to three lines" — not a recital of things they already have.
+3. **Scan for drift** and report it whether or not the version moved: `shell` bindings that now have a first-class equivalent; flags that no longer exist (`--full-auto`); a bare file path passed where a CLI expects prompt text; roles bound only to named hosts with no `any:` binding, which silently degrade everywhere else; a `grok` binding on a read-only phase; `defaults.fallback` naming a model alias instead of a role.
+4. **Ask only what you can't safely decide**, grouped into one pass: which harnesses they actually drive `/implement` from now, which model each role should use on any harness being added (never pick a tier for them), whether to convert each `shell` binding, and any fix with a real trade-off. Everything mechanical — bumping `version:`, preserving bindings, adding an `any:` binding that reproduces current behavior — needs no confirmation.
+5. **Write it, keep a `.bak` if the rewrite is substantial**, and show the resolved table per harness so the user can see their existing routing is untouched and only the new rows are new.
 
 ## Delivery phases
 
@@ -278,17 +301,16 @@ For a failing **e2e** test, have the runner re-run it once before dispatching a 
 
 **`type: claude` on any other host:** shell out — `claude -p --model <alias> --add-dir {CWD} --permission-mode <plan|acceptEdits> --output-format text`, brief on stdin. Use `plan` for read-only phases and `acceptEdits` for writing ones.
 
-**`type: codex`:** write the brief to a file under the scratchpad, then run
+**`type: codex | cursor | gemini | kimi | grok`:** write the brief to a file under the scratchpad, then run the CLI's recipe from **`references/harnesses.md`** — read it rather than reconstructing a command from memory, because the six differ on every axis that matters. Two traps it exists to prevent:
 
-```
-codex exec -m <model> -C <cwd> --sandbox <mode> [--approve-for-me] -o <output-file> - < <brief-file>
-```
+- **Naming a file in argv doesn't make a CLI read it.** Only `codex` and `claude` take the brief on stdin; the rest want the text as a positional argument. Passing a path to those sends the agent the literal string `/path/to/brief.md` — a failure that reads as the model ignoring its instructions rather than as a bug.
+- **Only `codex` (`-C`) and `cursor` (`--workspace`) have a working-directory flag.** For `gemini`, `kimi`, and `grok`, set the process cwd yourself; there is no `--cd` to invent.
 
-The trailing `-` is load-bearing: it makes Codex read the brief from **stdin**. `codex exec` treats a bare positional argument as the prompt *text*, so passing the brief's path alone would send Codex the literal string `/path/to/brief.md` and nothing else — a failure that looks like the model ignoring its instructions. `-o` captures the final message to a file, which beats scraping it out of mixed stdout. Sandbox follows the phase: `read-only` for `investigate`/`code_review`, `workspace-write --approve-for-me` for the writing phases.
+Permission level always follows the phase — the harness's read-only flag on `investigate`/`code_review`, its auto-approve flag on the writing phases. **`grok` is the exception with no read-only flag at all**; if it's routed to a read-only phase, put the constraint in the brief as forcefully as you can and tell the user the guarantee is weaker there.
 
-**`type: shell`:** substitute the config's `command` template — `{PROMPT}` / `{TASK_FILE}` / `{CWD}` / `{OUTPUT_FILE}` — and pipe `stdin:`'s file in if the binding sets one. Same trap as above generalizes: **naming a file in argv doesn't make a CLI read it**, so prefer stdin for long briefs and `{PROMPT}` only for short ones.
+**`type: shell`:** substitute the config's `command` template — `{PROMPT}` / `{TASK_FILE}` / `{CWD}` / `{OUTPUT_FILE}` — and pipe `stdin:`'s file in if the binding sets one.
 
-For every external CLI runner, use `run_in_background: true` on long runs and collect the output when it completes. **Before the first such call in a phase, verify the binary exists** (`command -v <bin>`). If it's missing, fall back per below and tell the user. If a command fails on *argument parsing*, the CLI has moved on from the recipe above — check its `--help`, adapt, and tell the user the built-in recipe is stale rather than silently retreating to another model.
+For every external CLI runner, use `run_in_background: true` on long runs and collect the output when it completes. **Before the first such call in a phase, verify the binary exists** (`command -v <bin>` — note it's `cursor-agent`, not `cursor`). If it's missing, fall back per below and tell the user. If a command fails on *argument parsing*, the CLI has moved past the recipe — check its `--help`, adapt, and tell the user the built-in recipe is stale rather than silently retreating to another model.
 
 ### Writing a delegated brief
 

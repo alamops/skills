@@ -4,7 +4,7 @@
     {
       "id": 0,
       "name": "multiharness-config",
-      "prompt": "/implement --config — I drive this skill from both Claude Code and Codex depending on what I'm doing. When I'm running in Claude Code I want the code review done by opus. When I'm running in Codex I want the code review done by gpt 5.6 sol. Set that up.",
+      "prompt": "/implement --config \u2014 I drive this skill from both Claude Code and Codex depending on what I'm doing. When I'm running in Claude Code I want the code review done by opus. When I'm running in Codex I want the code review done by gpt 5.6 sol. Set that up.",
       "expected_output": "A valid AGENTS_CONFIG.yml whose code_review phase resolves to opus on a claude_code host and gpt-5.6-sol on a codex host, plus a resolved-config summary naming the detected host.",
       "files": [],
       "assertions": [
@@ -20,9 +20,11 @@
     {
       "id": 1,
       "name": "v1-migration",
-      "prompt": "I already have an implement config in this repo but I want to add Codex to it — I want gpt-5.6-sol doing my code reviews when I'm working in Codex. Also can you sanity-check the existing config while you're in there, something about it feels off.",
+      "prompt": "I already have an implement config in this repo but I want to add Codex to it \u2014 I want gpt-5.6-sol doing my code reviews when I'm working in Codex. Also can you sanity-check the existing config while you're in there, something about it feels off.",
       "expected_output": "The v1 config migrated to the per-host schema with a Codex code_review binding on gpt-5.6-sol, and an explicit callout of the two latent defects in the original (--full-auto no longer exists; a bare {TASK_FILE} arg sends Codex the filename as its prompt).",
-      "files": ["fixtures/v1-repo/AGENTS_CONFIG.yml"],
+      "files": [
+        "fixtures/v1-repo/AGENTS_CONFIG.yml"
+      ],
       "assertions": [
         "Final AGENTS_CONFIG.yml parses as valid YAML",
         "No active (non-comment) command in the final config still uses --full-auto; quoting it in a comment to explain what was fixed is correct, not a failure",
@@ -35,7 +37,7 @@
     {
       "id": 2,
       "name": "codex-transport",
-      "prompt": "I'm about to drive /implement from inside Codex rather than Claude Code for this repo. Before I do — walk me through exactly what each phase will resolve to, and show me the literal shell command you'd run to spawn the code review agent and the implementation agent. I want to paste those commands into my terminal myself to check they work.",
+      "prompt": "I'm about to drive /implement from inside Codex rather than Claude Code for this repo. Before I do \u2014 walk me through exactly what each phase will resolve to, and show me the literal shell command you'd run to spawn the code review agent and the implementation agent. I want to paste those commands into my terminal myself to check they work.",
       "expected_output": "A resolved table for all seven phases under the Codex host, plus literal codex exec commands that actually parse against codex-cli 0.147.0, deliver the brief on stdin, and use a read-only sandbox for review vs workspace-write for implementation.",
       "files": [],
       "assertions": [
@@ -45,6 +47,37 @@
         "Commands deliver the brief via stdin (trailing - with a redirect or pipe) rather than a bare file path",
         "code_review uses a read-only sandbox and implementation uses workspace-write",
         "Every emitted command parses successfully against the installed codex-cli argument parser"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "update-v2-to-v3",
+      "prompt": "/implement --update \u2014 I set this config up a while back and I think it's out of date now. Bring it current, but don't change any of the models I picked.",
+      "expected_output": "Config moved to version 3 with every pre-existing model choice preserved byte-for-byte in meaning; new harness options explained; drift reported; only genuinely user-owned decisions asked.",
+      "files": [
+        "fixtures/v2-repo/AGENTS_CONFIG.yml"
+      ],
+      "assertions": [
+        "Final config declares version 3",
+        "Behavioural equivalence: every phase resolves to the same runner as before on each host the v2 config already covered (moving a Claude binding from claude_code: to any: is correct — it preserves those hosts and only adds coverage elsewhere)",
+        "The response explains what is new since v2 rather than reciting a full changelog",
+        "Drift in the original config is reported (stale shell binding that now has a first-class type)",
+        "The shell binding for a now-first-class CLI is offered for conversion rather than silently rewritten",
+        "The response does not ask about purely mechanical changes such as bumping the version number"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "new-harness-routing",
+      "prompt": "I also drive this from Cursor and sometimes Grok. Add them to my implement config \u2014 Cursor should use composer-2.5 for building and Grok for building too. Put the code review on the strongest thing available in each.",
+      "expected_output": "cursor and grok bindings added as first-class types with no command templates, and an explicit warning that Grok has no enforced read-only mode for the review phase.",
+      "files": [],
+      "assertions": [
+        "cursor and grok bindings use first-class types (type: cursor / type: grok), not type: shell with a command template",
+        "No hand-written command: template is introduced for either harness",
+        "The response warns that Grok has no headless read-only mode before putting it on code_review, or routes review elsewhere on that host",
+        "The binary checked for Cursor is cursor-agent rather than cursor",
+        "Resolution on the hosts the config already covered (claude_code, codex) is unchanged; any behaviour change on other hosts — such as narrowing a shell binding that sat on any: — is explicitly disclosed rather than made silently"
       ]
     }
   ]

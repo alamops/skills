@@ -9,14 +9,16 @@ Two ideas carry the whole schema:
 
 Together these let the same config mean "review with Opus when I'm in Claude Code, review with GPT-5.6 Sol when I'm in Codex" without duplicating seven phases per harness.
 
+**Current schema version: `3`.** See *Schema versions & `--update`* at the bottom for what each version added and how to bring an older config forward. The per-CLI command recipes live in `references/harnesses.md` — read that when spawning an external runner or adding a harness.
+
 Note on scope: `tests_creation` and `tests_running` cover **all** test layers — unit, integration, and e2e when the plan includes it. There is no separate e2e phase key; the `tests_running` agent owns the full e2e lifecycle (start the app, seed, run headless, tear down). For e2e-heavy repos, put a mid-tier model on `tests_running` rather than the cheapest one — orchestrating servers and diagnosing readiness is real work, not just running a command.
 
 ## Top-level shape
 
 ```yaml
-version: 2
+version: 3
 
-host: auto                          # auto | claude_code | codex | <name>
+host: auto                          # auto | claude_code | codex | cursor | gemini | kimi | grok | <name>
 
 defaults:
   strategy: distribute              # distribute | race — when a phase names >1 model
@@ -62,8 +64,16 @@ A runner is what actually executes a phase. The type names the agent; the orches
 | --- | --- | --- |
 | `self` | The orchestrator, inline in this session | No sub-agent at all |
 | `claude` | A Claude model | Native `Agent` tool when host is `claude_code`; otherwise shells out to `claude -p` |
-| `codex` | The Codex CLI | `codex exec` (recipe below) |
-| `shell` | Any other CLI harness | Your `command:` template |
+| `codex` | The Codex CLI | `codex exec` |
+| `cursor` | The Cursor Agent CLI | `cursor-agent -p` |
+| `gemini` | The Gemini CLI | `gemini -p` |
+| `kimi` | The Kimi Code CLI | `kimi -p` |
+| `grok` | The Grok Build CLI | `grok -p` |
+| `shell` | Any CLI with no built-in recipe | Your `command:` template |
+
+All six external types take the same two keys — `model:` and nothing else required. **The exact invocation for each lives in `references/harnesses.md`**, along with a capability matrix covering read-only support, working-directory flags, and prompt delivery, which differ enough between these CLIs to change which phases each can safely own. Read that page before spawning one.
+
+One difference is important enough to repeat here: **`grok` has no headless read-only mode** (its plan mode is TUI-only), so a Grok runner on `investigate` or `code_review` is constrained only by its brief, not by a flag. Every other type has an enforced read-only mode. Warn the user when routing Grok to a read-only phase.
 
 ### `self`
 
@@ -93,43 +103,34 @@ claude -p --model <alias> --add-dir {CWD} --permission-mode <mode> --output-form
 
 with the brief on stdin. Permission mode follows the phase: `plan` for read-only phases (`investigate`, `code_review`), `acceptEdits` for writing phases. This is why you can put `type: claude` in a `codex:` binding and have it work — the model choice is portable even though the transport isn't.
 
-### `codex`
+### `codex`, `cursor`, `gemini`, `kimi`, `grok`
 
-`model` is a Codex model slug — e.g. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-pro`, `gpt-5.4-mini`. No `command:` needed.
+Each takes just a `model:`. The orchestrator builds the command, derives the permission level from the phase, and captures the result.
 
 ```yaml
 models:
   reviewer:
-    codex: { type: codex, model: gpt-5.6-sol }
+    codex:  { type: codex,  model: gpt-5.6-sol }
+    cursor: { type: cursor, model: claude-opus-5-thinking-high }
+    gemini: { type: gemini, model: gemini-2.5-pro }
+    kimi:   { type: kimi,   model: kimi-code/kimi-for-coding }
+    grok:   { type: grok,   model: grok-4.5 }
 ```
 
-The orchestrator builds:
+Permission level is derived from the phase — the harness's read-only flag on `investigate`/`code_review`, its auto-approve flag on the writing phases — so a read-only phase can't quietly gain write access. **`references/harnesses.md` has the literal command for each, the per-CLI flag names, and the capability matrix.**
 
-```
-codex exec -m <model> -C {CWD} --sandbox <mode> [--approve-for-me] -o <OUTPUT_FILE> - < <TASK_FILE>
-```
+Optional per-binding keys, supported on all five:
 
-The trailing `-` is what makes Codex read the brief from **stdin**. This detail matters: `codex exec` treats a bare positional argument as the prompt *text*, so passing a file path alone would send Codex the literal string `/path/to/brief.md` and nothing else. Redirecting the file into `-` is the only shape that reliably delivers a long brief.
+- `sandbox` / `mode` — override the derived permission level for this binding.
+- `args` — extra flags appended verbatim, e.g. `["--ephemeral"]`. Use this for CLI options the schema doesn't model rather than dropping to `type: shell`.
 
-`-o <OUTPUT_FILE>` writes the agent's final message to a file the orchestrator then reads, which is far more robust than scraping it out of mixed stdout.
-
-Sandbox mode is derived from the phase, and can be overridden per binding with `sandbox:`:
-
-| Phase | Derived sandbox |
-| --- | --- |
-| `investigate`, `code_review` | `--sandbox read-only` |
-| `implementation`, `tests_creation`, `tests_fixes` | `--sandbox workspace-write --approve-for-me` |
-| `tests_running` | `--sandbox workspace-write --approve-for-me` — raise to `danger-full-access` only if the e2e run genuinely needs to write outside the workspace or bind privileged ports, and tell the user you did |
-
-**Spikes are the exception inside `investigate`.** A spike runs throwaway code, so `read-only` would block the very thing it exists to do. Point the spike agent at its own scratchpad directory and let it write only there: `-C <scratchpad>/spikes/<question-slug> --sandbox workspace-write`. This is strictly better than the Claude-runner equivalent — for a native agent the "scratchpad only, never the repo" rule is a *briefed* constraint the model can drift from, whereas `-C` plus `workspace-write` makes it **structural**: the sandbox root simply isn't the repo, so a spike cannot touch tracked files even if it tries.
-
-Optional per-binding keys: `sandbox` (override the derived mode), `args` (extra flags appended verbatim, e.g. `["--ephemeral"]`).
-
-> **Verified against `codex-cli 0.147.0`.** `--full-auto` does **not** exist in this version — older examples using it will fail argument parsing. Confirm with `codex exec --help` if a command errors; if the flags have moved on, fall back to `type: shell` with a template that matches the installed CLI and tell the user the built-in recipe is stale.
+**Spikes are the exception inside `investigate`.** A spike runs throwaway code, so a read-only mode would block the very thing it exists to do. Give it write access scoped to its own scratchpad directory. On a harness with a working-directory flag (`codex -C`, `cursor-agent --workspace`) point that flag at the spike directory — the "scratchpad only, never the repo" rule then becomes **structural** rather than briefed, because the working root simply isn't the repo. On `gemini`, `kimi`, and `grok` there's no such flag, so set the process working directory to the spike dir instead, and keep the boundary loud in the brief.
 
 ### `shell`
 
-The escape hatch for a harness the orchestrator has no built-in recipe for (Gemini CLI, Aider, `llm`, Cursor). `model` is a free-text label used only for reporting; `command` is the template that actually runs.
+The escape hatch for a harness with no built-in recipe (Aider, `llm`, an in-house wrapper) — or for a built-in whose recipe has gone stale. `model` is a free-text label used only for reporting; `command` is the template that actually runs.
+
+Prefer a first-class type whenever one exists: a `shell` binding pins a command shape that stops working the moment the CLI changes its flags, which is precisely how `--full-auto` survived in configs long after Codex removed it.
 
 ```yaml
 models:
@@ -318,7 +319,7 @@ Resolve each phase to concrete runners in this order, and **announce every subst
 Then apply these rules:
 
 - **`type: claude` on a non-`claude_code` host** → shell out to `claude -p` (not a fallback; the intended model still runs).
-- **`codex`/`shell` runner whose binary isn't installed** → that binding's `unavailable_fallback`, else `defaults.fallback`. Announce it.
+- **External CLI runner whose binary isn't installed** → that binding's `unavailable_fallback`, else `defaults.fallback`. Announce it. (Check `cursor-agent`, not `cursor`, for `type: cursor`.)
 - **Unknown Claude alias** (not `opus|sonnet|haiku|fable`) → `defaults.fallback`, warn.
 - **`type: self` outside `planning`** → coerce to `defaults.fallback`, warn. Only planning and interaction can be done inline.
 - **`shell` runner with no `command:`** → invalid; drop it and warn.
@@ -328,13 +329,42 @@ Then apply these rules:
 
 A model being unavailable for *any other reason* — bad slug, expired auth, exhausted quota — is **not** an automatic fallback. The CLI will fail loudly; surface that error to the user rather than quietly retrying elsewhere, because the fix is theirs to make.
 
-## Migrating a v1 config
+## Schema versions & `--update`
 
-v1 configs (`version: 1`, with `phases: { <phase>: { runners: [...] } }` and no `models:` block) still load. Read them as: every inline runner is an anonymous role bound to `any`, so they resolve identically on every host — which is exactly the old behavior.
+The current schema version is **3**. Older configs keep working — nothing has ever been removed — so an upgrade is always an improvement, never a repair.
 
-Offer to migrate on first run, and mention the two things v1 examples got wrong so the user knows why it's worth doing:
+| Version | Added | Still valid? |
+| --- | --- | --- |
+| 1 | Flat `phases: { <phase>: { runners: [...] } }`. Types `self`, `claude`, `shell`. No host axis. | Yes — read each inline runner as an anonymous role bound to `any` |
+| 2 | `models:` roles with per-host bindings, `host:` detection, `use:`, `cross_host:`, first-class `codex` | Yes |
+| 3 | First-class `cursor`, `gemini`, `kimi`, `grok`; `args:`/`sandbox:` on any external binding; `references/harnesses.md` capability matrix | Current |
 
-- `--full-auto` in a Codex command template is invalid on current `codex-cli`.
-- A bare `{TASK_FILE}` argument sends Codex the *filename* as its prompt, not the brief.
+### What `/implement --update` does
 
-To migrate: lift each distinct runner into a named role under `models:`, give it a `claude_code:` binding, and replace each phase's `runners:` list with `use:`. Add `codex:` bindings for the roles the user wants routed differently on that harness. Then bump `version: 2`.
+`--update` compares the config's `version:` against the current schema version, then brings it forward **without changing a single model the user chose**. That constraint is the whole point: an update that silently re-routes a phase is indistinguishable from a bug, and the user would have no reason to trust the command again.
+
+1. **Read and report.** Load the config, state its version and the current one. If they match, don't invent work — say it's current, mention anything genuinely stale (see step 3), and stop.
+2. **Explain what's new since their version**, in terms of what it would change *for them* — not a changelog. A v2 user hears "Cursor, Gemini, Kimi, and Grok are now first-class, so the `shell` block you wrote for Gemini can become three lines"; they don't need to hear about `codex` being added, which they already have.
+3. **Scan for drift**, and report findings whether or not the version changed:
+   - `shell` bindings whose command matches a CLI that now has a first-class type → offer to convert.
+   - Commands using flags that no longer exist (`--full-auto` is the known one).
+   - A bare `{TASK_FILE}`/file path passed where the CLI expects prompt *text*.
+   - Roles bound only to named hosts with no `any:` binding → they silently degrade on any other harness.
+   - A `grok` binding on `investigate` or `code_review` → no enforced read-only mode.
+   - `defaults.fallback` naming a model alias instead of a role (a v1 habit).
+4. **Ask only what you genuinely can't decide.** Group the questions into one pass. The decisions that are legitimately the user's:
+   - Which harnesses they actually drive `/implement` from now.
+   - Which model each role should use on any harness they're adding — never guess a model tier for them.
+   - Whether to convert each `shell` binding to its first-class equivalent (default yes, but it's their call if they tuned the command deliberately).
+   - Anything where a fix has a real trade-off, e.g. moving Grok off a read-only phase.
+
+   Don't ask about anything mechanical. Bumping `version:`, preserving existing bindings, and adding an `any:` binding that reproduces current behavior need no confirmation.
+
+   **One conversion looks mechanical but isn't: a `shell` binding sitting on `any:`.** Moving it to its named host (`gemini:`, say) *narrows* it — it was the runner for every harness you hadn't named, and afterwards it serves only that one, with `any:` falling to whatever else the role has. That silently re-routes every unnamed host, which is exactly what `--update` promises not to do. Either keep it on `any:` with the new type, or ask. If the user wanted it as a second opinion rather than as the sole runner, the mechanism is `cross_host: true` with `strategy: race`, not an `any:` binding — say so, because a config written before that existed often encodes the wish rather than the behavior.
+5. **Write, then show the resolved table** for each harness the config now covers, so the user can see that their existing routing is unchanged and only the new rows are new. Keep a backup (`AGENTS_CONFIG.yml.bak`) when the rewrite is substantial — a config is hand-tuned and cheap to preserve.
+
+### Migrating v1 → v3 by hand
+
+Lift each distinct runner into a named role under `models:`, bind it to `any:`, and replace each phase's `runners:` list with `use:`. Add per-harness bindings only where the user wants different routing there. Then set `version: 3`.
+
+Two v1-era defects worth naming while you're in the file, because both fail silently rather than loudly: `--full-auto` no longer exists on `codex-cli`, and a bare `{TASK_FILE}` argument sends Codex the *filename* as its prompt instead of the brief.
