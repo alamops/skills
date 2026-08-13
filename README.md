@@ -218,6 +218,8 @@ An end-to-end feature-delivery orchestrator. Invoked as `/implement <task>`, the
 
 **Per-phase model/harness routing** lives in `AGENTS_CONFIG.yml` at the repo root. Each phase resolves to one or more *runners*: the orchestrator itself (`self`), a Claude sub-agent (`opus`/`sonnet`/`haiku`/`fable`), or an external CLI harness (Codex, Gemini, Aider, …) via a shell command template. Listing **multiple harnesses per step** — e.g. `haiku` + `gpt-5.4-mini` on implementation — either *distributes* independent tasks across them or *races* the same task and keeps the best, per the phase `strategy`. Missing external CLIs fall back to a Claude sub-agent automatically.
 
+Delivery runs accept **modifier flags**, combinable with each other and the task text: `/implement --no-e2e <task>` skips the end-to-end test layer (unit/integration coverage still runs), and `/implement --no-spikes <task>` skips Phase 1's validation spikes (unsettled load-bearing assumptions are surfaced as open questions instead of experimentally verified).
+
 On the first `/implement` run with no config, the skill runs a short guided setup (pick a `balanced` / `fast` / `quality` preset, optionally plug in an external harness) and writes `AGENTS_CONFIG.yml`. Re-run setup anytime with `/implement --config`. See [`assets/AGENTS_CONFIG.example.yml`](./skills/implement/assets/AGENTS_CONFIG.example.yml) and [`references/agents-config.md`](./skills/implement/references/agents-config.md) for the full schema.
 
 Install just this skill into any compatible agent:
@@ -226,7 +228,7 @@ Install just this skill into any compatible agent:
 npx skills add alamops/skills --skill implement
 ```
 
-Trigger phrases: "/implement", "build this feature end-to-end", "orchestrate the implementation", "plan and implement X", "run a multi-agent build", "/implement --config".
+Trigger phrases: "/implement", "build this feature end-to-end", "orchestrate the implementation", "plan and implement X", "run a multi-agent build", "/implement --config", "/implement --no-e2e --no-spikes X".
 
 ### [`business-review`](./skills/business-review)
 

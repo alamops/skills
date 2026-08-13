@@ -9,6 +9,8 @@
   {"query": "we're adding a 'pause subscription' feature - user picks 1/2/3 months, billing skips, access continues. i want the whole thing: db migration, api, the settings ui, and tests. grill me on the edge cases first though", "should_trigger": true},
   {"query": "rewrite the search to use postgres full text search instead of the current LIKE queries. im not sure pg fts is actually fast enough at our scale (~2M rows in listings) so validate that before we commit to the approach, then build it", "should_trigger": true},
   {"query": "replace our homegrown feature flag helper in lib/flags.ts with launchdarkly across the whole app. i want this actually done and green, not a migration guide", "should_trigger": true},
+  {"query": "/implement --no-e2e add rate limiting to the public api — the e2e suite takes forever in this repo, unit and integration coverage is enough for this one", "should_trigger": true},
+  {"query": "/implement --no-e2e --no-spikes wire the new webhook retry queue into the billing service. skip the exploratory spikes and the e2e layer, i know the stack cold", "should_trigger": true},
   {"query": "start a time-boxed spike to figure out whether we can do offline caption caching on ios. 3 days max, i just need the question answered, not a shipped feature", "should_trigger": false},
   {"query": "can you review the diff on my branch before i open the PR? mainly worried about tenant isolation in the new report queries", "should_trigger": false},
   {"query": "turn docs/prd/team-workspaces.md into engineering tickets — one per layer, with acceptance criteria and QA steps", "should_trigger": false},
