@@ -1,6 +1,6 @@
 ---
 name: implement
-description: (alamops) The go-to skill for building and shipping a whole feature — not just planning, speccing, or reviewing one. Fire it whenever the user types `/implement`, `/implement <task>`, `/implement --config`, or `/implement --update`, and whenever they ask in plain words to "actually build", ship, deliver, or drive a feature from start to finish — dig through the codebase, grill them on the unknowns, write a plan, then write the code, review it, and test until green. Same skill when they hand over a plan or PRD and say "drive the whole implementation", when the build should fan out across parallel background agents, when one feature spans several surfaces (API, web, mobile), or for anything about `AGENTS_CONFIG.yml` — choosing which model runs each step (model routing / agents config), routing phases per harness (Claude Code, Codex, Cursor, Gemini CLI, Kimi, Grok), or upgrading/migrating an existing config to the current schema — even with no task attached. Skip it for a single pinpointed edit or typo, a lone code or diff review, explaining existing code, turning a PRD into tickets, git chores like rebases and merge conflicts, or scoping a standalone time-boxed spike whose output is an answer, not shipped code.
+description: (alamops) The go-to skill for building and shipping a whole feature end to end — not just planning or reviewing one. Fire it on any `/implement` invocation — bare, with a task, with combinable modifier flags (`--no-e2e` skips end-to-end tests, `--no-spikes` skips validation spikes), or as `--config`/`--update` — and whenever the user asks in plain words to actually build, ship, or deliver a feature — investigate, grill on unknowns, plan, code, review, and test until green. Same skill for driving a handed-over plan or PRD, builds that fan out across parallel background agents or span several surfaces (API, web, mobile), and anything about `AGENTS_CONFIG.yml` — per-phase model routing, per-harness routing (Claude Code, Codex, Cursor, Gemini CLI, Kimi, Grok), or migrating a config to the current schema, even with no task attached. Skip it for a pinpointed edit, a lone code/diff review, explaining code, turning a PRD into tickets, git chores, or a time-boxed spike whose output is an answer, not shipped code.
 ---
 
 # Implement — multi-agent feature delivery
@@ -15,9 +15,18 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 | --- | --- |
 | `/implement --config` (or "reconfigure implement") | Jump straight to **Phase 0 — Configuration** and rewrite `AGENTS_CONFIG.yml`. Do not run a delivery. |
 | `/implement --update` (or "update my implement config") | Bring an existing `AGENTS_CONFIG.yml` up to the current schema — see **Phase 0 — Updating**. Do not run a delivery, and do not change models the user already chose. |
-| `/implement <task>` or any end-to-end build request | If `AGENTS_CONFIG.yml` is missing, run **Phase 0** first, then continue into the delivery phases. If it exists, load it and go straight to **Phase 1**. |
+| `/implement <task>` or any end-to-end build request | If `AGENTS_CONFIG.yml` is missing, run **Phase 0** first, then continue into the delivery phases. If it exists, load it and go straight to **Phase 1**. A delivery invocation may also carry **modifier flags** — see below. |
 
 `--config` and `--update` are different jobs and shouldn't be collapsed: `--config` re-decides routing from scratch (the user wants different models), while `--update` preserves every routing decision already made and only moves the file onto a newer schema. Reaching for `--config` when the user asked to update would throw away tuning they never agreed to lose.
+
+### Modifier flags
+
+`--no-e2e` and `--no-spikes` are **modifiers on a delivery run**, not entry points: they attach to a task invocation (`/implement --no-e2e <task>`) and **combine freely** with each other and with the task text (`/implement --no-e2e --no-spikes <task>`). They have no effect on `--config`/`--update` runs — if one appears there, say you ignored it rather than dropping it silently. Honor the equivalent plain-language ask the same way ("skip the e2e tests", "don't run spikes").
+
+- **`--no-e2e`** — skip end-to-end testing for this run. Phase 1 skips the e2e-harness recon, Phase 3's plan records e2e as *skipped by flag* instead of judging applicability, Phase 6 writes no e2e tests, and Phases 7/8 run and fix only the unit/integration layers. The flag removes one layer, not the test loop — unit and integration coverage is unchanged.
+- **`--no-spikes`** — run Phase 1 with research agents only, no spike agents. A load-bearing assumption that research can't settle is **not** silently trusted in their absence: it becomes a sharp question in Phase 2 or an explicit entry in the plan's *Open questions / assumptions*, marked as unverified because spikes were disabled.
+
+Either flag is a deliberate trade the user chose, so make it auditable rather than invisible: note active flags in the plan header, and in the final report state what was skipped because of them.
 
 **When it's not this skill.** Phase 1 runs small spikes *inside* an investigation, which is a different job from taking on a **standalone, time-boxed spike** — and now that this skill talks about spikes, it's easy to mistake one for the other. The tell is what the user wants at the end: *working code that ships* (this skill) versus *a finding they'll act on later* — a feasibility answer, a benchmark number, a throwaway prototype (not this skill). If it's the latter, say so and hand it back instead of opening an eight-phase delivery; a spike that gets run as a feature build wastes the timebox that made it a spike.
 
@@ -133,7 +142,7 @@ Implement progress — <feature>
 - [ ] Phase 4  Implement (M independent tasks across K agents)
 - [ ] Phase 5  Code review (code-review skill if present, else built-in rubric) — verdict
 - [ ] Phase 6  Tests created (P independent tasks; unit/integration + e2e when applicable)
-- [ ] Phase 7  Tests run (background agent; full suite incl. e2e) — pass/fail
+- [ ] Phase 7  Tests run (background agent; full suite incl. e2e when applicable) — pass/fail
 - [ ] Phase 8  Tests fixed (if needed) — re-run to green
 ```
 
@@ -150,10 +159,10 @@ Parallel agents multiply tokens, not just speed — a multi-agent build burns on
 Goal: understand the ground truth before asking the user anything, so your questions are sharp and your plan is grounded.
 
 **You decide how many agents to spawn** based on the surface area of the request. A typical fan-out:
-- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast. Have one of them also capture the **runnability picture**: how the app starts locally (dev command, services, env vars, seed data) and whether an e2e harness exists (framework, test command, fixtures) — Phases 3/6/7 need this to decide whether and how e2e coverage runs.
+- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast. Have one of them also capture the **runnability picture**: how the app starts locally (dev command, services, env vars, seed data) and whether an e2e harness exists (framework, test command, fixtures) — Phases 3/6/7 need this to decide whether and how e2e coverage runs. Under `--no-e2e`, skip only the e2e-harness half of that recon — still capture how the app starts, which later phases use regardless.
 - **Git-history agent** — how similar features were built here before, recent changes to the files in scope, prior migrations, reverted attempts, `CHANGELOG`/PR patterns. Uses `git log`, `git blame`, `git show`.
 - **Best-practices agent** — web research (if web tools are available) on current recommended patterns, library APIs, version-specific gotchas for the technologies in play. Confirm live versions rather than trusting memory.
-- **Spike agent(s)** — throwaway code that *tests* an assumption the other three can only assert. Spawn these only when a load-bearing unknown survives the research above; see *Spikes* below.
+- **Spike agent(s)** — throwaway code that *tests* an assumption the other three can only assert. Spawn these only when a load-bearing unknown survives the research above — and never under `--no-spikes`; see *Spikes* below.
 
 Spawn the research agents **in one turn** so they run concurrently, using the `investigate` runner(s). Research agents are read-only — on a `claude` runner prefer the `Explore` agent type, which can still run git and web (it has Bash/WebSearch/WebFetch) but has no edit tools, so a research agent structurally cannot modify code. On an external CLI runner there's no `Explore` type; the equivalent guarantee is the sandbox flag (`--sandbox read-only` for Codex), so make sure it's actually set rather than assuming the brief's "don't edit anything" will hold. Each agent returns a tight structured brief (findings + file:line anchors + open questions), not a file dump.
 
@@ -166,6 +175,8 @@ Synthesize all briefs yourself into: **what we know**, **what we're proving** (s
 Source, history, and docs tell you what's *claimed*. Some assumptions only yield to an experiment: does this library actually support X on the version we're pinned to, does that endpoint really return the shape its docs promise, is this query fast enough at our production row count, does the approach even work in our runtime. Believing the claim and discovering the truth in Phase 4 — after a plan was approved and code was written on top of it — is the most expensive failure mode this workflow has. A spike moves that discovery to the cheapest possible moment.
 
 So when an assumption is **load-bearing** — the plan changes if it's wrong — and the codebase, git history, and web have all failed to settle it, run a **spike**: the smallest piece of throwaway code that answers exactly that one question.
+
+**Under `--no-spikes`, don't run spikes at all** — not even the "obvious from the request" first-wave kind. The unknown a spike would have settled doesn't disappear with the flag: treat it exactly like an *inconclusive* spike verdict — a sharp question for the owner in Phase 2, or an explicit *Open questions / assumptions* entry marked as unverified because spikes were disabled. What the flag removes is the experiment, never the honesty about what remains unproven.
 
 - **Spike only what's load-bearing and unresolved.** Most unknowns are settled by reading. A spike costs an agent, wall-clock, and tokens, so it has to buy a decision. Good test: name the plan change that follows from each possible outcome. If you can't, you're satisfying curiosity, not de-risking — skip it.
 - **One question, one spike, one verdict.** A spike that "explores the library" comes back with an essay. A spike that asks "can `pdf-lib@1.17` flatten form fields on Node 18?" comes back with yes/no and the command that proves it. Multiple unknowns → multiple spike agents in the same wave, each with its own question.
@@ -187,7 +198,7 @@ Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing un
 - Data/contract changes, migrations, enum propagation.
 - Non-functional constraints (perf budgets, security/tenancy, reliability, observability).
 - Dependencies, feature flags, rollout, worst-case failure mode.
-- Acceptance bar (what "done" means) and how it'll be verified — including which flows deserve e2e coverage and any environment constraints for running them (test accounts, sandbox credentials, external services).
+- Acceptance bar (what "done" means) and how it'll be verified — including which flows deserve e2e coverage and any environment constraints for running them (test accounts, sandbox credentials, external services). Skip the e2e half of this under `--no-e2e`; don't ask the owner about coverage the flag already declined.
 
 Ask in **one or two structured passes** (group by topic; use the question tool where it fits). Don't drip questions one at a time. Push back on vague answers — "make it fast" → "what P95 latency is acceptable?". If the user says "you have enough, just go", proceed but **log every remaining assumption explicitly** in the plan's *Open Questions / Assumptions* section.
 
@@ -206,6 +217,7 @@ The plan must be decomposition-ready — it's the contract every downstream agen
 | Date | <YYYY-MM-DD> |
 | Source | <task / PRD path / conversation> |
 | Config | AGENTS_CONFIG.yml (<preset or custom>) |
+| Flags | <active modifier flags, e.g. --no-e2e --no-spikes, or "none"> |
 | Branch | TBD — set in Phase 4 |
 | Base SHA | TBD — set in Phase 4 |
 
@@ -218,7 +230,8 @@ The plan must be decomposition-ready — it's the contract every downstream agen
    For each task: an ID, a one-line goal, the **exact files it owns** (disjoint from
    its wave-siblings), dependencies (which task/wave must land first), and acceptance.
 ## 5. Work breakdown — test tasks  (unit / integration / e2e; which impl task each covers)
-   State explicitly whether e2e applies — and to which user flows — or why it doesn't.
+   State explicitly whether e2e applies — and to which user flows — or why it doesn't
+   (including "skipped via --no-e2e" when that flag is active).
    If it applies, record the run recipe from Phase 1: e2e command, how the app and its
    services start, seed data, and any credentials/environment prerequisites.
 ## 6. Execution waves  (which tasks run in parallel; the barrier between waves)
@@ -273,7 +286,7 @@ Triage the findings yourself. Fold **must-fix** items (bugs, security, correctne
 
 Same mechanics as Phase 4, using the `tests_creation` runner(s) and the plan's **test work breakdown**. Partition test tasks by the module/file under test so agents don't collide. Each agent extends the project's existing test setup and fixtures (from Phase 1 findings) rather than inventing a parallel harness, and covers the acceptance criteria plus negative paths for its assigned area.
 
-**Include e2e coverage whenever it's applicable — not as a bonus, but as part of "tested".** Unit and integration tests validate pieces in isolation; a class of bugs only surfaces in the assembled system — broken wiring between layers, auth/session behavior, migrations meeting real data, a UI flow that dies on the second step. For those, an e2e test is often the *only* automated way to catch the bug before a user does. E2e applies when the feature has a user-visible flow or crosses a process boundary (UI→API→DB, service→service, CLI→filesystem) and the app can be run locally per Phase 1's runnability findings. It doesn't apply to pure library/helper changes fully exercised by unit tests — in that case the plan says so explicitly and moves on; "not applicable" is a recorded decision, never a silent omission.
+**Include e2e coverage whenever it's applicable — not as a bonus, but as part of "tested".** (Under `--no-e2e`, none of this section's e2e work happens — no e2e tests, no harness setup; rely on the plan's *skipped by flag* record instead of an applicability judgment.) Unit and integration tests validate pieces in isolation; a class of bugs only surfaces in the assembled system — broken wiring between layers, auth/session behavior, migrations meeting real data, a UI flow that dies on the second step. For those, an e2e test is often the *only* automated way to catch the bug before a user does. E2e applies when the feature has a user-visible flow or crosses a process boundary (UI→API→DB, service→service, CLI→filesystem) and the app can be run locally per Phase 1's runnability findings. It doesn't apply to pure library/helper changes fully exercised by unit tests — in that case the plan says so explicitly and moves on; "not applicable" is a recorded decision, never a silent omission.
 
 When it applies: extend the project's existing e2e harness (Playwright, Cypress, Detox, supertest-against-a-live-server, whatever Phase 1 found) with tests for the feature's critical paths — the happy path plus the failure states a real user could plausibly hit. Keep them deterministic: proper readiness waits and seeded data, not sleeps and shared mutable state. If the repo has **no** e2e harness, don't invent heavyweight infrastructure unilaterally — raise it in the plan (Phase 3), and if approved, stand up the minimal ecosystem-standard harness scoped to the feature's flows.
 
@@ -346,8 +359,8 @@ When the loop completes, give the user a tight wrap-up:
 - **Plan:** `docs/plans/<slug>.md`.
 - **Implemented:** the waves/tasks that ran and which runner did each.
 - **Review verdict:** counts by severity + must-fixes addressed.
-- **Tests:** final pass/fail with the command used, split by layer (unit/integration vs e2e). If e2e was skipped as not applicable, say so and why; if any e2e step couldn't be automated, include the manual runbook for the remainder.
-- **Open items:** anything deferred, any assumptions logged, any remaining failures you couldn't resolve.
+- **Tests:** final pass/fail with the command used, split by layer (unit/integration vs e2e). If e2e was skipped — as not applicable or via `--no-e2e` — say so and why; if any e2e step couldn't be automated, include the manual runbook for the remainder.
+- **Open items:** anything deferred, any assumptions logged (calling out those left unverified because `--no-spikes` disabled the experiment), any remaining failures you couldn't resolve.
 - **Next step:** e.g. "review `docs/plans/<slug>.md`", or "run `/code-review` on the branch before pushing".
 
 ## Adapting to reality
