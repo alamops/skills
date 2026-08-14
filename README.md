@@ -91,6 +91,7 @@ The CLI keeps one canonical copy of each skill under `~/.agents/skills/` (or `.a
 | [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
 | [`create-tasks`](./skills/create-tasks) | Senior Technical PM that turns a PRD, brief, or conversation into a small set of deep, end-to-end dev/QA tasks — performs mandatory deep repo analysis, asks clarifying questions, then writes one Markdown task per file plus a master `INDEX.md` under `docs/tasks/<feature-slug>/` | `tasks`, `engineering`, `tickets`, `planning`, `qa` |
 | [`implement`](./skills/implement) | End-to-end feature-delivery orchestrator — the session model plans, then fans out background sub-agents through investigate → grill → plan → implement → review → tests → run → fix, with per-phase model/harness routing in `AGENTS_CONFIG.yml` (multi-harness per step supported) | `orchestration`, `agents`, `implementation`, `planning`, `tests` |
+| [`break-fix`](./skills/break-fix) | Adversarial e2e bug hunt on a *running* app — attacks it as a hostile, confused and impatient user, watches console/network/server logs rather than the viewport, then root-causes each bug, writes a **failing** e2e regression test, fixes it, and proves the suite goes green | `qa`, `e2e`, `testing`, `bug-hunt`, `regression` |
 | [`business-review`](./skills/business-review) | Analyzes a product/business from its public-facing materials, generates and ranks buyer personas, recommends an ICP, pressure-tests positioning and pricing, saves strategy artifacts to `docs/` | `gtm`, `personas`, `icp`, `positioning`, `strategy` |
 | [`rpg-persona`](./skills/rpg-persona) | Hard buyer-persona roleplay with a coaching block after every reply — pressure-tests pitches, messaging, and pricing, saves the transcript and lessons to `docs/ROLEPLAY_NOTES.md`. **Run [`business-review`](./skills/business-review) first** so the roleplay uses real, ranked personas. | `gtm`, `sales`, `roleplay`, `coaching`, `objection-handling` |
 
@@ -202,6 +203,7 @@ Trigger phrases: "create dev tasks", "break this PRD into tasks", "scaffold engi
 2. **`create-tasks`** — turn that PRD plus a deep repo scan into the task set under `docs/tasks/<feature-slug>/`.
 3. **`implement`** — orchestrate the actual build: investigate, grill, plan, then fan out background agents to code, review, and test each task.
 4. **`code-review`** — review each PR as engineers ship the tasks; feed any structural findings back into the next task set.
+5. **`break-fix`** — once the feature is running, hunt it adversarially for the bugs a diff review can't see (state, timing, session, real-user misuse), and leave a regression test behind for each one.
 
 ### [`implement`](./skills/implement)
 
@@ -229,6 +231,31 @@ npx skills add alamops/skills --skill implement
 ```
 
 Trigger phrases: "/implement", "build this feature end-to-end", "orchestrate the implementation", "plan and implement X", "run a multi-agent build", "/implement --config", "/implement --no-e2e --no-spikes X".
+
+### [`break-fix`](./skills/break-fix)
+
+An adversarial bug hunt against the **running** app, followed by a real fix. Most testing walks the happy path the developers already walked a hundred times while building the feature — it's green by construction. This skill does the opposite: it deliberately violates the contract the UI implies, then closes the loop on whatever falls out.
+
+1. **Scope & safety** — confirms a local/dev/staging target, two test accounts (cross-account checks need them), and what's off-limits (anything wired to real money, real messages, or shared data).
+2. **Recon** — boots the app, finds the existing e2e harness (Playwright / Cypress / Detox / supertest — *before* finding bugs, so their tests have somewhere to go), maps the surface, then reads the code for assumptions worth attacking: unguarded `parseInt` on query params, lookups that never filter by owner, client-only validation, index-as-key.
+3. **Hunt** — runs each surface past **eight bad users**: the impatient one (double-submits, Back mid-spinner), the confused one (deep-links into step 3 of a wizard), the clipboard (12KB paste, emoji-only name, a leading `=`), the polyglot (RTL, combining marks, zero-width chars), the multitasker (two tabs, one record), the commuter (offline mid-request, 3G, a request that never resolves), the nosy one (tampered IDs, direct API calls against their *own* second account), and the extremist (`0`, `-1`, 10k rows, year 2999).
+4. **Triage** — reproduces from a clean state, separates *bug* from *nit* / *intended* / *environment*, dedupes five symptoms of one missing guard into one root cause, assigns severity by consequence, and checks in before anything architectural.
+5. **Root cause** — traces one level deeper than the symptom (two orders from a double-click isn't a button bug, it's a missing idempotency guard) and greps for every other site with the same defect.
+6. **Regression test, red first** — writes the e2e test *before* the fix and **observes it failing for the right reason**. A test written after a fix has never demonstrated it can detect the bug; it may be asserting something that was always true.
+7. **Fix, green** — smallest change that removes the cause, then re-run the test, the manual repro, the full suite, and the sibling surfaces (guards frequently narrow a hole rather than close it).
+8. **Report** — `docs/bug-hunts/<date>-<slug>.md` with repro, evidence, root cause, fix, and test per bug — plus what was attacked and came back **clean**, which is what tells a reader how much of the app the hunt actually covered.
+
+Bundled references: [`attack-playbook.md`](./skills/break-fix/references/attack-playbook.md) (ready-to-use payloads and step sequences across 13 surfaces — forms, auth/authorization, concurrency, pagination, uploads, network failure, time/locale, direct API, money — plus a signal table mapping console/network/server/database symptoms to their usual cause) and [`e2e-harnesses.md`](./skills/break-fix/references/e2e-harnesses.md) (per-framework detection, run recipes, attack tooling like `page.route` and `cy.intercept`, what to do when there's no harness, and the determinism rules that keep a regression test from being skipped in a month).
+
+Rules of engagement are explicit: authorized local/dev/staging targets only, never production, no irreversible external side effects, no load or infrastructure attacks — "authorization probing" means checking whether *your own* second account can reach the first one's data.
+
+Install just this skill:
+
+```sh
+npx skills add alamops/skills --skill break-fix
+```
+
+Trigger phrases: "break my app", "try to break it", "bug hunt", "bug bash", "QA sweep", "exploratory/adversarial testing", "click around and see what explodes", "find bugs by actually using it", "write an e2e test so this can't come back."
 
 ### [`business-review`](./skills/business-review)
 
