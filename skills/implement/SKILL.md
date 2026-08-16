@@ -1,6 +1,6 @@
 ---
 name: implement
-description: (alamops) The go-to skill for building and shipping a whole feature end to end — not just planning or reviewing one. Fire it on any `/implement` invocation — bare, with a task, with combinable modifier flags (`--no-e2e` skips end-to-end tests, `--no-spikes` skips validation spikes), or as `--config`/`--update` — and whenever the user asks in plain words to actually build, ship, or deliver a feature — investigate, grill on unknowns, plan, code, review, and test until green. Same skill for driving a handed-over plan or PRD, builds that fan out across parallel background agents or span several surfaces (API, web, mobile), and anything about `AGENTS_CONFIG.yml` — per-phase model routing, per-harness routing (Claude Code, Codex, Cursor, Gemini CLI, Kimi, Grok), or migrating a config to the current schema, even with no task attached. Skip it for a pinpointed edit, a lone code/diff review, explaining code, turning a PRD into tickets, git chores, or a time-boxed spike whose output is an answer, not shipped code.
+description: (alamops) The go-to skill for building and shipping a whole feature end to end — not just planning or reviewing one. Fire it on any `/implement` invocation — bare, with a task, with combinable modifier flags (`--auto` runs unattended for remote/CI execution, `--no-e2e` skips end-to-end tests, `--no-spikes` skips validation spikes), or as `--config`/`--update` — and whenever the user asks in plain words to actually build, ship, or deliver a feature — investigate, grill on unknowns, plan, code, review, and test until green. Same skill for driving a handed-over plan or PRD, builds that fan out across parallel background agents or span several surfaces (API, web, mobile), and anything about `AGENTS_CONFIG.yml` — per-phase model routing, per-harness routing (Claude Code, Codex, Cursor, Gemini CLI, Kimi, Grok), or migrating a config to the current schema, even with no task attached. Skip it for a pinpointed edit, a lone code/diff review, explaining code, turning a PRD into tickets, git chores, or a time-boxed spike whose output is an answer, not shipped code.
 ---
 
 # Implement — multi-agent feature delivery
@@ -21,8 +21,9 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 
 ### Modifier flags
 
-`--no-e2e` and `--no-spikes` are **modifiers on a delivery run**, not entry points: they attach to a task invocation (`/implement --no-e2e <task>`) and **combine freely** with each other and with the task text (`/implement --no-e2e --no-spikes <task>`). They have no effect on `--config`/`--update` runs — if one appears there, say you ignored it rather than dropping it silently. Honor the equivalent plain-language ask the same way ("skip the e2e tests", "don't run spikes").
+`--auto`, `--no-e2e` and `--no-spikes` are **modifiers on a delivery run**, not entry points: they attach to a task invocation (`/implement --no-e2e <task>`) and **combine freely** with each other and with the task text (`/implement --auto --no-e2e <task>`). They have no effect on `--config`/`--update` runs — if one appears there, say you ignored it rather than dropping it silently. Honor the equivalent plain-language ask the same way ("skip the e2e tests", "don't run spikes", "run it unattended, I'm heading out").
 
+- **`--auto`** — run the whole delivery unattended: the two human gates (Phase 2 grill, Phase 3 approval) resolve without waiting for the owner. This is the **only** way to turn those gates off — see *Autonomous mode* for what "running the grill autonomously" actually involves, because it is not the same as skipping it.
 - **`--no-e2e`** — skip end-to-end testing for this run. Phase 1 skips the e2e-harness recon, Phase 3's plan records e2e as *skipped by flag* instead of judging applicability, Phase 6 writes no e2e tests, and Phases 7/8 run and fix only the unit/integration layers. The flag removes one layer, not the test loop — unit and integration coverage is unchanged.
 - **`--no-spikes`** — run Phase 1 with research agents only, no spike agents. A load-bearing assumption that research can't settle is **not** silently trusted in their absence: it becomes a sharp question in Phase 2 or an explicit entry in the plan's *Open questions / assumptions*, marked as unverified because spikes were disabled.
 
@@ -35,21 +36,41 @@ Either flag is a deliberate trade the user chose, so make it auditable rather th
 1. **You plan; agents labor.** Investigation, code edits, test writing, and test running fan out to sub-agents. Synthesis, interrogation, planning, task decomposition, conflict-free partitioning, review triage, and merge decisions stay with you. Never delegate a decision you should own.
 2. **Every delegated task must be independently completable.** When you fan out agents in a wave, each agent's task must have *no dependency on another in-flight agent* and must touch a **disjoint set of files** from its siblings. If two pieces of work would edit the same file, either sequence them into different waves or isolate them (see *Avoiding collisions*). This is the single most important constraint — parallel agents that collide corrupt each other's work.
 3. **Honor the config.** Detect the **host harness** first — it decides how a runner is reachable — then resolve each phase's runner(s) from `AGENTS_CONFIG.yml`. Don't silently substitute a different model. If a configured runner is unavailable, fall back per the *Runner resolution* rules and **tell the user you did**.
-4. **Gate on the human at the two real decision points** — *unless running autonomously* (see *Autonomous mode*). Stop for the user after **investigation** (to grill and confirm) and after **planning** (to approve before any code is written). Don't stop for approval at every micro-step — that defeats the purpose.
+4. **Gate on the human at the two real decision points.** Stop for the user after **investigation** (to grill and confirm) and after **planning** (to approve before any code is written). These two gates are the skill's contract with the owner, not a formality to route around when the task feels clear — only `--auto` turns them off (see *Autonomous mode*). Don't stop for approval at every micro-step, though; that defeats the purpose.
 5. **Persist the plan.** The plan is a durable artifact saved under `docs/plans/`, not just a chat message. Everything downstream references it.
 6. **Read-only until the plan is approved.** Phases 1–3 must not modify the repo. The first write to a tracked file happens in Phase 4, after the user signs off. Investigation *spikes* are not an exception to this — they write and run throwaway code, but only inside the scratchpad, never in the working tree (see Phase 1).
 7. **Finish the loop.** Don't declare done until implementation, review, and tests have actually run and you've reported concrete results (review verdict + test output). If tests fail, say so with the output; don't paper over it.
 8. **Track progress.** Maintain a visible checklist (see below) so the user can see which phase you're in and what each agent is doing.
 
-## Autonomous mode
+## Autonomous mode (`--auto`)
 
-The workflow gates on the human twice (grill in Phase 2, plan approval in Phase 3). Both gates assume an owner is present to answer. When the invocation **grants full autonomy or the owner is unreachable** — e.g. the user says "just build it, don't ask", `/implement` is driven by another orchestrator/CI, or the caller explicitly says no one is available — run unattended instead of stalling:
+The workflow gates on the human twice (grill in Phase 2, plan approval in Phase 3), and both gates assume an owner is there to answer. `--auto` is the switch that says nobody is — it exists so this skill can run from CI, a cron job, or another orchestrator without stalling forever on a question no one will read.
 
-- **Phase 2 (grill):** skip the interactive interrogation. Resolve each unknown yourself with the most reasonable, clearly-stated assumption, and record every one in the plan's *Open questions / assumptions* section.
-- **Phase 3 (approval):** self-approve the plan and proceed to Phase 4 without waiting. The plan is still written and persisted.
-- **Always log the deviation.** Note in the plan header and in the final report that the two gates were bypassed under autonomous mode, and surface the assumption list prominently so a human can audit the decisions after the fact.
+### Autonomy is declared, never inferred
 
-Everything else (investigate → implement → review → tests → run → fix) is unchanged. Default to *interactive* unless autonomy is clearly signalled — bypassing a present owner's judgment is worse than pausing for it.
+Run autonomously only when one of these is true:
+
+1. **`--auto` is on the invocation**, or the user says in plain words *in this run* that no one will be available ("just build it, don't ask me anything", "run it unattended overnight").
+2. **You genuinely have no channel to reach a human** — you checked, and there is no question tool and no user turn to answer you. Not "asking would be slow", not "the caller is a script so probably nobody's watching": actually no way to surface a question.
+
+Everything else runs **interactive**, including the cases that most tempt you to shortcut:
+
+- **The task looks fully specified.** A detailed ticket answers *what* someone wants, not the dozen edge decisions the build forces (what happens on the empty case, which side of a boundary is inclusive, what the failure state shows the user). Specificity in the ask is not the absence of unknowns.
+- **You feel confident.** High confidence is a reason to make the questions sharper, not to stop asking them. The assumptions that wreck a build are the ones you never noticed you made, and confidence is exactly what hides them.
+- **You were spawned by another agent, or invoked with a flag-heavy command line.** Neither says the owner left. If you can ask, ask.
+
+If you skip the grill and it turns out someone *was* there, you didn't save them time — you spent their review budget instead, and you converted questions that cost a minute into assumptions that cost a rewrite. Pausing on a present owner is cheap; guessing past one is not.
+
+### What `--auto` actually changes
+
+- **Phase 2 (grill):** still runs — you conduct it yourself instead of putting it to the owner. See *Running the grill autonomously* in Phase 2. Do not collapse it into "I'll note some assumptions"; the interrogation's value is mostly in *generating* the questions, and that half needs no human.
+- **Phase 3 (approval):** self-approve and proceed to Phase 4 without waiting. The plan is still written and persisted — it's the artifact the absent owner reviews after the fact, so it matters *more* here, not less.
+- **Everything else** (investigate → implement → review → tests → run → fix) is unchanged.
+- **Log the deviation loudly.** Record `--auto` in the plan header's `Flags` row, keep the self-answered grill in the plan, and open the final report with the fact that both gates were resolved without the owner plus the shortlist of decisions they should check first.
+
+### What `--auto` does not grant
+
+`--auto` is permission to decide the **ordinary** without waiting, not permission to make an irreversible call alone. When an unresolved question is one-way — destroying or migrating data non-additively, changing a public API contract others depend on, relaxing an auth/tenancy boundary, anything touching money, secrets, or production — don't pick an answer and build on it. Scope that piece **out** of this run, deliver everything around it, and surface it at the top of the report as the decision waiting for a human. An unattended run that stops short of one irreversible choice is a good outcome; one that guesses and ships it is the failure this whole workflow exists to prevent.
 
 ## Phase 0 — Configuration
 
@@ -137,7 +158,7 @@ Present this checklist at the start and keep it updated as you go:
 Implement progress — <feature>
 - [ ] Phase 0  Config loaded/created (AGENTS_CONFIG.yml)
 - [ ] Phase 1  Investigate (spawned N agents: codebase / git-history / web / spikes)
-- [ ] Phase 2  Grill & confirm (unknowns resolved with the owner)
+- [ ] Phase 2  Grill & confirm (unknowns resolved with the owner — or self-answered under --auto)
 - [ ] Phase 3  Plan written & approved (docs/plans/<slug>.md)
 - [ ] Phase 4  Implement (M independent tasks across K agents)
 - [ ] Phase 5  Code review (code-review skill if present, else built-in rubric) — verdict
@@ -192,6 +213,8 @@ Carry every verdict forward: settled assumptions become grounded context in the 
 
 Now interrogate the owner. This is a gate — you stop and wait.
 
+**This phase always happens.** Interactive or `--auto`, no delivery reaches Phase 3 without a grill on the record; the only thing autonomy changes is *who answers*. Treat "the questions never got asked" as a defect on par with shipping untested code, because it fails the same way — silently, and only after the expensive work is built on top of it. Concretely, before you write a single line of the plan, you should be able to point at either a set of answers from the owner or the self-answered Q&A table described below. If you can't, you skipped the phase; go back and run it.
+
 Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing unknowns before planning. Pull every open question from Phase 1 and press on:
 - Ambiguous scope boundaries (in / out), non-goals.
 - Exact business rules, limits, defaults, eligibility, edge cases, error states.
@@ -203,6 +226,17 @@ Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing un
 Ask in **one or two structured passes** (group by topic; use the question tool where it fits). Don't drip questions one at a time. Push back on vague answers — "make it fast" → "what P95 latency is acceptable?". If the user says "you have enough, just go", proceed but **log every remaining assumption explicitly** in the plan's *Open Questions / Assumptions* section.
 
 **Lead with what you proved.** Where a Phase 1 spike settled something, state the measured result instead of asking about it — "the export runs in 4.2s over 50k rows, so no background job" respects the owner's time and shows the question is closed. Where a spike came back inconclusive, or where it *contradicted* what the docs or the team believed, that's now one of your sharpest questions: put the evidence in front of the owner and ask how they want to proceed, since a false premise they still hold is exactly what will derail the plan.
+
+#### Running the grill autonomously (`--auto`)
+
+Under `--auto` you play both roles. Write the questions first, *then* answer them — in that order, and without letting the second half soften the first. The temptation is to only "ask" what you already know the answer to, which produces a comfortable transcript and finds nothing; the point of writing the interrogation before answering it is that the questions come from the topic list above, not from your existing plan.
+
+1. **Draft the same question set you'd have sent the owner** — the full structured pass, edge cases and non-goals included. Don't trim it because you're the one answering.
+2. **Answer each from the strongest source available**, and name which one you used: Phase 1 evidence (spike verdict, file:line anchor) → the repo's own conventions and how sibling features already decided this → the ecosystem/library default → your judgment. An answer sourced from the codebase is a finding; an answer sourced from judgment is a guess, and the plan should let a reader tell them apart at a glance.
+3. **When you're down to judgment, take the reversible option.** Nobody is going to catch an over-broad reading before it ships, so choose the narrower scope, the safer default (deny over allow, flag-off over flag-on, additive over destructive), and write down the alternative you passed on so the owner can flip it cheaply.
+4. **Mark each answer's confidence and blast radius.** What matters isn't how unsure you are, it's what breaks if you're wrong. Flag every low-confidence answer to a question whose other outcome would have changed the plan's *shape* — those are what a human reads first.
+5. **Record the whole exchange in the plan** as a Q&A table in §8 (question / answer / source / confidence). This is the artifact that makes an unattended run auditable; without it the owner has to reverse-engineer your reasoning from the diff.
+6. **Escalate the one-way doors instead of answering them** — per *What `--auto` does not grant*. Scope them out, build the rest, and put them at the top of the report.
 
 ### Phase 3 — Plan
 
@@ -217,7 +251,8 @@ The plan must be decomposition-ready — it's the contract every downstream agen
 | Date | <YYYY-MM-DD> |
 | Source | <task / PRD path / conversation> |
 | Config | AGENTS_CONFIG.yml (<preset or custom>) |
-| Flags | <active modifier flags, e.g. --no-e2e --no-spikes, or "none"> |
+| Flags | <active modifier flags, e.g. --auto --no-e2e, or "none"> |
+| Gates | <"grilled + approved by owner", or "self-resolved under --auto"> |
 | Branch | TBD — set in Phase 4 |
 | Base SHA | TBD — set in Phase 4 |
 
@@ -236,12 +271,14 @@ The plan must be decomposition-ready — it's the contract every downstream agen
    services start, seed data, and any credentials/environment prerequisites.
 ## 6. Execution waves  (which tasks run in parallel; the barrier between waves)
 ## 7. Blast radius & risks  (callers, sibling paths, migrations, rollback, feature flags)
-## 8. Open questions / assumptions  (anything the owner deferred)
+## 8. Open questions / assumptions  (anything the owner deferred; under --auto, the
+   self-answered grill as a Q&A table — question / answer / source / confidence —
+   plus any one-way decision scoped out for a human)
 ```
 
 The **work breakdown is the heart of the plan**: partition the feature into tasks whose file ownership does not overlap within a wave, and order the waves so cross-task dependencies are respected. This is what makes Phase 4/6 safely parallel.
 
-**Present the plan to the user and get explicit approval before writing any code.** Offer to adjust. This is the second and final hard gate — *unless running autonomously*, in which case self-approve and continue (see *Autonomous mode*).
+**Present the plan to the user and get explicit approval before writing any code.** Offer to adjust. This is the second and final hard gate — *unless `--auto` is active*, in which case self-approve and continue (see *Autonomous mode*).
 
 ### Phase 4 — Implement
 
@@ -357,6 +394,7 @@ Resolve a phase in three steps: look up its `use:` role(s) in `models:`; take th
 
 When the loop completes, give the user a tight wrap-up:
 - **Plan:** `docs/plans/<slug>.md`.
+- **Gates:** whether the grill and plan approval went through the owner, or were self-resolved under `--auto`. If autonomous, lead with this and link the plan's §8 Q&A table, plus anything you scoped out as a one-way decision — an absent owner's first question is "what did you decide for me?", and it should be answered before they have to ask.
 - **Implemented:** the waves/tasks that ran and which runner did each.
 - **Review verdict:** counts by severity + must-fixes addressed.
 - **Tests:** final pass/fail with the command used, split by layer (unit/integration vs e2e). If e2e was skipped — as not applicable or via `--no-e2e` — say so and why; if any e2e step couldn't be automated, include the manual runbook for the remainder.
@@ -365,4 +403,6 @@ When the loop completes, give the user a tight wrap-up:
 
 ## Adapting to reality
 
-These eight phases are the backbone, not a straitjacket. A tiny change may collapse investigation to a single agent and skip the grill. A research-heavy feature may loop investigation → grill twice before planning. If the user says "skip tests" or "no need to review", honor it and note it. The value is in the *orchestration discipline* — grounded investigation, resolved unknowns, a durable plan, collision-free parallel execution, and a closed test loop — not in rigidly performing all eight steps regardless of the task.
+These eight phases are the backbone, not a straitjacket. A tiny change may collapse investigation to a single agent and the grill to two questions. A research-heavy feature may loop investigation → grill twice before planning. If the user says "skip tests" or "no need to review", honor it and note it. The value is in the *orchestration discipline* — grounded investigation, resolved unknowns, a durable plan, collision-free parallel execution, and a closed test loop — not in rigidly performing all eight steps regardless of the task.
+
+The one place to hold the line is the pair of human gates, because they're the only part of that discipline you can't restore later. Scaling the grill *down* to match a small change is right — one question instead of twelve. Dropping it to zero is a different move, and it's the one that quietly turns a delivery into a guess. If nobody is there to answer, that's what `--auto` is for, and even then the questions still get written down.
