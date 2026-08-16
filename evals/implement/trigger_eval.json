@@ -11,6 +11,8 @@
   {"query": "replace our homegrown feature flag helper in lib/flags.ts with launchdarkly across the whole app. i want this actually done and green, not a migration guide", "should_trigger": true},
   {"query": "/implement --no-e2e add rate limiting to the public api — the e2e suite takes forever in this repo, unit and integration coverage is enough for this one", "should_trigger": true},
   {"query": "/implement --no-e2e --no-spikes wire the new webhook retry queue into the billing service. skip the exploratory spikes and the e2e layer, i know the stack cold", "should_trigger": true},
+  {"query": "/implement --auto migrate the audit log writes off the sync path onto the outbox table. im on a flight for the next 9h so nobody's around to answer questions — decide the open stuff yourself and write down what you assumed", "should_trigger": true},
+  {"query": "this runs from our nightly CI job, no human in the loop: /implement --auto --no-e2e regenerate the openapi client from the new spec and fix every call site that breaks", "should_trigger": true},
   {"query": "start a time-boxed spike to figure out whether we can do offline caption caching on ios. 3 days max, i just need the question answered, not a shipped feature", "should_trigger": false},
   {"query": "can you review the diff on my branch before i open the PR? mainly worried about tenant isolation in the new report queries", "should_trigger": false},
   {"query": "turn docs/prd/team-workspaces.md into engineering tickets — one per layer, with acceptance criteria and QA steps", "should_trigger": false},

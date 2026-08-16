@@ -210,7 +210,7 @@ Trigger phrases: "create dev tasks", "break this PRD into tasks", "scaffold engi
 An end-to-end feature-delivery orchestrator. Invoked as `/implement <task>`, the **current session model stays in the driver's seat** — it does the thinking (synthesis, interrogation, planning, decomposition, merge decisions) and delegates the parallelizable labor to background sub-agents whose models are chosen per phase in `AGENTS_CONFIG.yml`. It runs eight phases:
 
 1. **Investigate** — the orchestrator decides how many read-only agents to spawn and fans them out in parallel across the codebase, git history, and (when web tools are available) current best practices.
-2. **Grill & confirm** — a hard, respectful interrogation of the owner to resolve every load-bearing unknown before planning. First hard gate.
+2. **Grill & confirm** — a hard, respectful interrogation of the owner to resolve every load-bearing unknown before planning. First hard gate; runs on every delivery, self-answered on the record under `--auto`.
 3. **Plan** — a complete, decomposition-ready plan saved to `docs/plans/<feature-slug>.md`, whose work breakdown partitions the feature into file-disjoint tasks and execution waves. Presented for explicit approval — second hard gate.
 4. **Implement** — one background agent per task, launched in waves, each with a self-contained brief and an exclusive set of files so parallel agents never collide (worktree isolation when clean partitioning isn't possible).
 5. **Code review** — reviews the diff using the [`code-review`](./skills/code-review) skill as the rubric when it's installed, else a built-in review rubric bundled in the skill (so `/implement` stays fully standalone); the orchestrator triages must-fixes.
@@ -220,7 +220,9 @@ An end-to-end feature-delivery orchestrator. Invoked as `/implement <task>`, the
 
 **Per-phase model/harness routing** lives in `AGENTS_CONFIG.yml` at the repo root. Each phase resolves to one or more *runners*: the orchestrator itself (`self`), a Claude sub-agent (`opus`/`sonnet`/`haiku`/`fable`), or an external CLI harness (Codex, Gemini, Aider, …) via a shell command template. Listing **multiple harnesses per step** — e.g. `haiku` + `gpt-5.4-mini` on implementation — either *distributes* independent tasks across them or *races* the same task and keeps the best, per the phase `strategy`. Missing external CLIs fall back to a Claude sub-agent automatically.
 
-Delivery runs accept **modifier flags**, combinable with each other and the task text: `/implement --no-e2e <task>` skips the end-to-end test layer (unit/integration coverage still runs), and `/implement --no-spikes <task>` skips Phase 1's validation spikes (unsettled load-bearing assumptions are surfaced as open questions instead of experimentally verified).
+Delivery runs accept **modifier flags**, combinable with each other and the task text: `/implement --auto <task>` runs unattended for remote/CI execution, `/implement --no-e2e <task>` skips the end-to-end test layer (unit/integration coverage still runs), and `/implement --no-spikes <task>` skips Phase 1's validation spikes (unsettled load-bearing assumptions are surfaced as open questions instead of experimentally verified).
+
+**The two human gates are enforced, and `--auto` is the only way off them.** Autonomy is declared, never inferred — a detailed ticket, a confident read of the task, or being spawned by another agent are not signals that the owner left, so the grill happens whenever there's any channel to reach one. `--auto` doesn't delete Phase 2; it changes who answers: the orchestrator writes the full question set first, then answers each from the strongest source available (spike evidence → repo convention → ecosystem default → judgment), takes the reversible option wherever it's down to judgment, and records the exchange as a question / answer / source / confidence table in the plan so the absent owner can audit every call. Genuinely one-way decisions — destructive migrations, public API contracts, auth boundaries, anything touching money or secrets — are scoped out of the run and escalated rather than guessed.
 
 On the first `/implement` run with no config, the skill runs a short guided setup (pick a `balanced` / `fast` / `quality` preset, optionally plug in an external harness) and writes `AGENTS_CONFIG.yml`. Re-run setup anytime with `/implement --config`. See [`assets/AGENTS_CONFIG.example.yml`](./skills/implement/assets/AGENTS_CONFIG.example.yml) and [`references/agents-config.md`](./skills/implement/references/agents-config.md) for the full schema.
 
@@ -230,7 +232,7 @@ Install just this skill into any compatible agent:
 npx skills add alamops/skills --skill implement
 ```
 
-Trigger phrases: "/implement", "build this feature end-to-end", "orchestrate the implementation", "plan and implement X", "run a multi-agent build", "/implement --config", "/implement --no-e2e --no-spikes X".
+Trigger phrases: "/implement", "build this feature end-to-end", "orchestrate the implementation", "plan and implement X", "run a multi-agent build", "/implement --config", "/implement --auto X", "/implement --no-e2e --no-spikes X".
 
 ### [`break-fix`](./skills/break-fix)
 
