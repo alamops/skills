@@ -6,7 +6,9 @@
       "eval_name": "e2e-applicable-guestbook-feature",
       "prompt": "Add a 'sign the guestbook' feature to the guestbook app: POST /entries accepts JSON {name, message} — name is required and must be non-empty after trimming, message is required with 1–280 characters; valid requests return 201 with the created entry {id, name, message, createdAt}, invalid ones return 400 with {error: <reason>}. GET /entries returns all entries as JSON, newest first. The homepage (GET /) must display existing entries (name and message, HTML-escaped), newest first, instead of 'No entries yet.' when entries exist. In-memory storage is fine.",
       "expected_output": "A completed delivery: plan under docs/plans/ that states e2e applicability and the run recipe; working feature; unit AND e2e tests extended for the new flow; the agent ran both suites itself (including e2e end-to-end) and reported pass/fail split by layer.",
-      "files": ["guestbook-app (seeded Node app with existing unit + e2e harness)"],
+      "files": [
+        "guestbook-app (seeded Node app with existing unit + e2e harness)"
+      ],
       "assertions": [
         "Plan exists under docs/plans/ and its test breakdown explicitly addresses e2e: whether it applies, to which flows, and the run recipe (command + startup)",
         "Feature works over real HTTP (grader boots the app and drives it): valid POST returns 201 with id/name/message/createdAt; whitespace name and 281-char message return 400; GET /entries is newest-first JSON; homepage shows entries HTML-escaped",
@@ -14,6 +16,30 @@
         "Unit test coverage was extended for the new validation/storage logic (new or modified tests under tests/unit/)",
         "The delivery agent ran the e2e suite itself during the run: final report states e2e results (not just unit) with pass/fail, split by layer",
         "Full test suite is green when the grader re-runs it independently (npm test and npm run test:e2e both pass in the output repo)"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "no-follow-ups-hidden-remainder",
+      "prompt": "/implement --no-follow-ups --auto Make price display currency-aware: formatPrice should take the currency alongside the cents and render USD, EUR and BRL with Intl.NumberFormat.",
+      "expected_output": "A complete delivery with no remainder: every display path threads a currency (including the two callers that are easy to miss), the currency allow-list and the seeded data are brought along, docs stop documenting the old shape, tests are green, and the plan carries a completeness ledger whose rows are all in-this-run or out-of-scope — never deferred. The prompt deliberately says nothing about completeness, so whatever gets swept in is attributable to the flag rather than to the task text.",
+      "files": [
+        "orders-service fixture: USD-only formatPrice(cents) in src/money.js, called by src/cart.js and src/checkout.js directly, by src/report/weekly.js through a src/util barrel re-export, and by scripts/export-orders.js from outside src/; a USD-only allow-list in config/currencies.js; data/seed-orders.json rows carrying pre-rendered \"$129.00\" strings and no currency field; docs/pricing.md and README.md documenting the single-argument call; unit tests over money and the weekly report"
+      ],
+      "assertions": [
+        "No single-argument formatPrice call left in production code — every display path threads a currency",
+        "Hidden surface swept: src/report/weekly.js, which reaches formatPrice through the src/util barrel rather than importing it directly",
+        "Hidden surface swept: scripts/export-orders.js, a caller outside src/",
+        "Propagation surface swept: config/currencies.js lists EUR and BRL, not just USD",
+        "Data surface swept: seeded orders carry an explicit currency rather than relying on an implicit USD default",
+        "No hand-rolled USD formatting ('$' + cents/100, toFixed(2)) left anywhere in the code",
+        "Intl.NumberFormat used with working USD, EUR and BRL support",
+        "No deferral markers (TODO/FIXME/XXX/HACK) in the shipped code",
+        "README.md and docs/pricing.md show the currency argument and mention the new currencies",
+        "Test suite is green when the grader re-runs it independently",
+        "Plan persisted under docs/plans/",
+        "Plan carries a completeness ledger whose rows are dispositioned in-this-run (with a task ID) or out-of-scope (with a reason) — no row reads deferred",
+        "Scope boundary held: no adjacent feature invented (FX conversion, app-wide locale support, or a downstream-owned output schema changed) under the banner of completeness"
       ]
     }
   ]
