@@ -57,6 +57,19 @@ only the uniquified command present, nothing fires at all. Measured directly:
 name and asking which skill wins — a question with a real answer, and the one that
 makes near-miss negatives meaningful.
 
+**A query that starts with `/implement` cannot pass, and that is not the
+description's fault.** The slash form expands the skill directly instead of going
+through the `Skill` tool, so the first tool call the harness sees is the skill
+*already running* — for `implement` that is its Phase 0 probe, `ls AGENTS_CONFIG.yml`.
+Scored by "did a `Skill` call land first?", every explicit-invocation positive reads
+as a miss while the skill is demonstrably in control of the turn. Plain-language
+positives have the opposite problem: Claude orients with `ls`/`grep` for several
+calls before consulting a skill, and the run is killed long before that. So read the
+two arms against each other rather than reading the absolute pass rate — a candidate
+and a baseline that score identically across every query have identical triggering,
+which is the question this harness can actually answer. The negatives are the half
+that stands on its own.
+
 **Triggering is context-sensitive, so run it somewhere the queries make sense.**
 A query about a billing service scores near zero inside this docs-only repo no
 matter how good the description is, because Claude orients with `ls` and `git log`

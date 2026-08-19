@@ -1,6 +1,6 @@
 ---
 name: implement
-description: (alamops) The go-to skill for building and shipping a whole feature end to end — not just planning or reviewing one. Fire it on any `/implement` invocation — bare, with a task, with combinable modifier flags (`--auto` runs unattended for remote/CI execution, `--no-e2e` skips end-to-end tests, `--no-spikes` skips validation spikes), or as `--config`/`--update` — and whenever the user asks in plain words to actually build, ship, or deliver a feature — investigate, grill on unknowns, plan, code, review, and test until green. Same skill for driving a handed-over plan or PRD, builds that fan out across parallel background agents or span several surfaces (API, web, mobile), and anything about `AGENTS_CONFIG.yml` — per-phase model routing, per-harness routing (Claude Code, Codex, Cursor, Gemini CLI, Kimi, Grok), or migrating a config to the current schema, even with no task attached. Skip it for a pinpointed edit, a lone code/diff review, explaining code, turning a PRD into tickets, git chores, or a time-boxed spike whose output is an answer, not shipped code.
+description: (alamops) The go-to skill for building and shipping a whole feature end to end — not just planning or reviewing one. Fire it on any `/implement` invocation — bare, with a task, with combinable modifier flags (`--auto` for unattended remote/CI runs, `--no-e2e`, `--no-spikes`, and `--no-follow-ups` to ban deferred follow-up work), or as `--config`/`--update` — and whenever the user asks in plain words to actually build, ship, or deliver a feature — investigate, grill on unknowns, plan, code, review, and test until green. Same skill for driving a handed-over plan or PRD, builds that fan out across parallel background agents or span several surfaces (API, web, mobile), and anything about `AGENTS_CONFIG.yml` — per-phase model routing, per-harness routing (Claude Code, Codex, Cursor, Gemini CLI, Kimi, Grok), or migrating a config to the current schema, even with no task attached. Skip it for a pinpointed edit, a lone code/diff review, explaining code, turning a PRD into tickets, git chores, or a time-boxed spike whose output is an answer, not shipped code.
 ---
 
 # Implement — multi-agent feature delivery
@@ -21,13 +21,14 @@ Your job is to take a feature request from a vague ask to reviewed, tested, work
 
 ### Modifier flags
 
-`--auto`, `--no-e2e` and `--no-spikes` are **modifiers on a delivery run**, not entry points: they attach to a task invocation (`/implement --no-e2e <task>`) and **combine freely** with each other and with the task text (`/implement --auto --no-e2e <task>`). They have no effect on `--config`/`--update` runs — if one appears there, say you ignored it rather than dropping it silently. Honor the equivalent plain-language ask the same way ("skip the e2e tests", "don't run spikes", "run it unattended, I'm heading out").
+`--auto`, `--no-e2e`, `--no-spikes` and `--no-follow-ups` are **modifiers on a delivery run**, not entry points: they attach to a task invocation (`/implement --no-e2e <task>`) and **combine freely** with each other and with the task text (`/implement --auto --no-e2e <task>`). They have no effect on `--config`/`--update` runs — if one appears there, say you ignored it rather than dropping it silently. Honor the equivalent plain-language ask the same way ("skip the e2e tests", "don't run spikes", "run it unattended, I'm heading out", "finish the whole thing, I don't want a follow-up PR").
 
 - **`--auto`** — run the whole delivery unattended: the two human gates (Phase 2 grill, Phase 3 approval) resolve without waiting for the owner. This is the **only** way to turn those gates off — see *Autonomous mode* for what "running the grill autonomously" actually involves, because it is not the same as skipping it.
 - **`--no-e2e`** — skip end-to-end testing for this run. Phase 1 skips the e2e-harness recon, Phase 3's plan records e2e as *skipped by flag* instead of judging applicability, Phase 6 writes no e2e tests, and Phases 7/8 run and fix only the unit/integration layers. The flag removes one layer, not the test loop — unit and integration coverage is unchanged.
 - **`--no-spikes`** — run Phase 1 with research agents only, no spike agents. A load-bearing assumption that research can't settle is **not** silently trusted in their absence: it becomes a sharp question in Phase 2 or an explicit entry in the plan's *Open questions / assumptions*, marked as unverified because spikes were disabled.
+- **`--no-follow-ups`** (also spelled `--no-follow-up`) — deliver the change *whole*: no part of it gets deferred to a later PR, a `TODO`, or a "phase 2". Every remainder the change itself creates — the call sites still on the old path, the error state nobody wired up, the rows the migration didn't backfill — is either done in this run or explicitly ruled a different ticket. See *Completeness mode*, which is mostly about that boundary, because a flag read as "build everything you can imagine" does more damage than no flag at all.
 
-Either flag is a deliberate trade the user chose, so make it auditable rather than invisible: note active flags in the plan header, and in the final report state what was skipped because of them.
+Each flag is a deliberate trade the user chose, so make it auditable rather than invisible: note active flags in the plan header, and in the final report state what each one changed about the run — what was skipped, or for `--no-follow-ups`, what was swept in.
 
 **When it's not this skill.** Phase 1 runs small spikes *inside* an investigation, which is a different job from taking on a **standalone, time-boxed spike** — and now that this skill talks about spikes, it's easy to mistake one for the other. The tell is what the user wants at the end: *working code that ships* (this skill) versus *a finding they'll act on later* — a feasibility answer, a benchmark number, a throwaway prototype (not this skill). If it's the latter, say so and hand it back instead of opening an eight-phase delivery; a spike that gets run as a feature build wastes the timebox that made it a spike.
 
@@ -71,6 +72,45 @@ If you skip the grill and it turns out someone *was* there, you didn't save them
 ### What `--auto` does not grant
 
 `--auto` is permission to decide the **ordinary** without waiting, not permission to make an irreversible call alone. When an unresolved question is one-way — destroying or migrating data non-additively, changing a public API contract others depend on, relaxing an auth/tenancy boundary, anything touching money, secrets, or production — don't pick an answer and build on it. Scope that piece **out** of this run, deliver everything around it, and surface it at the top of the report as the decision waiting for a human. An unattended run that stops short of one irreversible choice is a good outcome; one that guesses and ships it is the failure this whole workflow exists to prevent.
+
+## Completeness mode (`--no-follow-ups`)
+
+The characteristic way a delivery ends up *almost* right is not a bug — it's a remainder. The new path lands but three of its seven callers still use the old one. The happy path works and the empty state is a `TODO`. The enum grows in the model but not in the validator, the serializer, or the fixtures. The migration adds the column but nothing backfills the rows that already exist. Each of these is individually small, which is exactly why it gets written down as a follow-up and then never done, and it's how a codebase accumulates half-migrations that nobody can safely finish a year later.
+
+`--no-follow-ups` says this run isn't done while a remainder exists. It's a completeness contract, not a scope expansion — and holding those two apart is the whole job.
+
+### What the flag pulls in
+
+Work the change *itself* creates, which a reviewer would call unfinished:
+
+- **Every call site, not the first one.** All callers migrated to the new path; the old path deleted, or deliberately kept with a stated reason.
+- **The states the new code can actually reach** — errors, empty, loading, permission-denied, the boundary values — not just the path the demo walks.
+- **The full propagation surface** of a shape change: types, enums, validation, serializers, API contracts, client SDKs, fixtures, seed data, generated artifacts.
+- **The data the change implies** — the migration *and* the backfill for existing rows, since new-rows-only is the classic deferred half.
+- **Whatever the change made untrue** — docs, comments, config, examples, README snippets that now describe the old behavior.
+- **What it orphaned** — dead code and unused exports the change leaves behind.
+- **Tests for all of the above**, at the layers still enabled (`--no-e2e` still removes that layer; see below).
+
+### What it deliberately doesn't
+
+The flag removes *deferral*, not *scope*. Adjacent features nobody asked for, refactors of code you merely read on the way through, dependency upgrades, "while we're in here" cleanups of pre-existing debt — all stay out, flag or no flag.
+
+The test that separates them: if this shipped as-is, would a reviewer call it **unfinished**, or would they call it **a different ticket**? Unfinished is in scope; a different ticket is out. When you genuinely can't tell, that's a Phase 2 question, not a license to build it — an unbounded run nobody consented to is a worse outcome than the follow-up ticket the flag was meant to prevent, because it burns budget *and* buries the actual change in noise.
+
+### What changes per phase
+
+- **Phase 2 (grill).** The completeness questions move to the front: which callers exist, what happens to the rows that are already there, which failure states a user can reach, what gets deleted when this lands. Under this flag you can't take "we'll handle that later" for an answer — from the owner or from yourself under `--auto` — so turn each one into a decision now: in this run, or out of scope with a reason.
+- **Phase 3 (plan).** Carry a **completeness ledger** (§9 of the template): every candidate follow-up you or the investigation surfaced, each dispositioned as *in this run* (with the task ID that owns it) or *out of scope* (with why it's a different ticket). "Deferred" is not an available third value — that's what the flag bought. The ledger is also your honest scope estimate: this flag makes runs bigger, and the approval gate is where the owner gets to see *how much* bigger before a line of code is written.
+- **Phase 4 (implement).** Say it in the brief: no `TODO`/`FIXME`/stub/`NotImplementedError` standing in for work inside this task's scope. An agent that finds remainder *outside* its file boundaries reports it back instead of reaching across (which would collide) or leaving a marker (which would defeat the flag) — you schedule it into the next wave.
+- **Phase 5 (review).** Add completeness to the rubric: unmigrated call sites, partial propagation, reachable states with no handling, orphaned dead code, new deferral markers. A cheap mechanical pre-check first — grep the diff for added `TODO|FIXME|XXX|HACK` and placeholder throws — since that catches the obvious half in seconds. Findings of this kind are **must-fix** here rather than nice-to-have; that reclassification *is* the flag.
+- **Phases 6–8.** The states the sweep pulled in get tested like anything else, and the loop still has to close green.
+- **Report.** State the ledger's outcome: what was swept in, what was ruled out of scope and why. If anything is still genuinely open, name it and say why — the point of the flag is that this list is empty, so a non-empty one needs an explanation, not a bullet.
+
+### What it doesn't grant
+
+- **It never overrides the one-way-door rule.** Under `--auto`, a destructive migration, a public contract break, or an auth-boundary change is still escalated and scoped out — "for completeness" is not consent. An unattended run that finishes everything except the irreversible piece is the intended outcome.
+- **It doesn't override the other flags.** `--no-e2e` still removes the e2e layer; `--no-spikes` still leaves an assumption unverified. Completeness of *implementation* isn't certainty about *assumptions* — say so in the plan rather than letting one flag look like it healed the other.
+- **It doesn't authorize a run that dwarfs the ask.** When the sweep uncovers a remainder an order of magnitude larger than the original request (the migration touches 200 call sites across three services), that's a scoping decision for the owner in Phase 2 or 3 — present the ledger and let them choose — not something to absorb silently and surface eight hours later.
 
 ## Phase 0 — Configuration
 
@@ -180,7 +220,7 @@ Parallel agents multiply tokens, not just speed — a multi-agent build burns on
 Goal: understand the ground truth before asking the user anything, so your questions are sharp and your plan is grounded.
 
 **You decide how many agents to spawn** based on the surface area of the request. A typical fan-out:
-- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast. Have one of them also capture the **runnability picture**: how the app starts locally (dev command, services, env vars, seed data) and whether an e2e harness exists (framework, test command, fixtures) — Phases 3/6/7 need this to decide whether and how e2e coverage runs. Under `--no-e2e`, skip only the e2e-harness half of that recon — still capture how the app starts, which later phases use regardless.
+- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast. Have one of them also capture the **runnability picture**: how the app starts locally (dev command, services, env vars, seed data) and whether an e2e harness exists (framework, test command, fixtures) — Phases 3/6/7 need this to decide whether and how e2e coverage runs. Under `--no-e2e`, skip only the e2e-harness half of that recon — still capture how the app starts, which later phases use regardless. Under `--no-follow-ups`, have the codebase agents return the **completeness inventory** as well — every caller of what you're changing, every place the shape propagates (types, validation, serializers, fixtures), and the existing-data surface a migration would have to backfill. The ledger in Phase 3 is only as good as this list, and it's far cheaper to enumerate now than to discover mid-wave.
 - **Git-history agent** — how similar features were built here before, recent changes to the files in scope, prior migrations, reverted attempts, `CHANGELOG`/PR patterns. Uses `git log`, `git blame`, `git show`.
 - **Best-practices agent** — web research (if web tools are available) on current recommended patterns, library APIs, version-specific gotchas for the technologies in play. Confirm live versions rather than trusting memory.
 - **Spike agent(s)** — throwaway code that *tests* an assumption the other three can only assert. Spawn these only when a load-bearing unknown survives the research above — and never under `--no-spikes`; see *Spikes* below.
@@ -222,6 +262,7 @@ Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing un
 - Non-functional constraints (perf budgets, security/tenancy, reliability, observability).
 - Dependencies, feature flags, rollout, worst-case failure mode.
 - Acceptance bar (what "done" means) and how it'll be verified — including which flows deserve e2e coverage and any environment constraints for running them (test accounts, sandbox credentials, external services). Skip the e2e half of this under `--no-e2e`; don't ask the owner about coverage the flag already declined.
+- What would otherwise become a follow-up: remaining call sites, existing rows, states nobody has wired up, what gets deleted. Worth a question on any run, and load-bearing under `--no-follow-ups`, where each answer has to resolve to *in this run* or *out of scope* — never "later" (see *Completeness mode*).
 
 Ask in **one or two structured passes** (group by topic; use the question tool where it fits). Don't drip questions one at a time. Push back on vague answers — "make it fast" → "what P95 latency is acceptable?". If the user says "you have enough, just go", proceed but **log every remaining assumption explicitly** in the plan's *Open Questions / Assumptions* section.
 
@@ -274,9 +315,14 @@ The plan must be decomposition-ready — it's the contract every downstream agen
 ## 8. Open questions / assumptions  (anything the owner deferred; under --auto, the
    self-answered grill as a Q&A table — question / answer / source / confidence —
    plus any one-way decision scoped out for a human)
+## 9. Completeness ledger  (only under --no-follow-ups: every candidate follow-up,
+   each marked *in this run* with the task ID that owns it, or *out of scope* with
+   why it's a different ticket — never "deferred")
 ```
 
 The **work breakdown is the heart of the plan**: partition the feature into tasks whose file ownership does not overlap within a wave, and order the waves so cross-task dependencies are respected. This is what makes Phase 4/6 safely parallel.
+
+Under `--no-follow-ups`, build the ledger (§9) *before* the breakdown and let it feed the breakdown, not the other way around — a remainder you notice while writing tasks tends to get written down; a remainder you enumerate first gets a task.
 
 **Present the plan to the user and get explicit approval before writing any code.** Offer to adjust. This is the second and final hard gate — *unless `--auto` is active*, in which case self-approve and continue (see *Autonomous mode*).
 
@@ -289,6 +335,8 @@ The **work breakdown is the heart of the plan**: partition the feature into task
 For each wave in the plan, spawn one `general-purpose` sub-agent per task, **in a single turn**, using the `implementation` runner(s).
 
 Give each agent a **self-contained brief**: the objective, the exact files it owns (and a firm instruction not to touch anything else), the relevant findings/anchors from the plan, the acceptance criteria, and the project conventions to follow (match surrounding code — naming, error handling, test idiom). The agent should return a summary of what it changed and any deviations.
+
+Under `--no-follow-ups`, add the completeness clause to every brief: finish the task's scope with no `TODO`/stub placeholders, and report remainder found outside the owned files back to you instead of reaching across a boundary or leaving a marker (*Completeness mode*).
 
 - **Validate the wave before spawning it.** Cross-check the file-ownership lists of the tasks you're about to launch together: if any two name the same file, it isn't a valid wave — re-partition or split it before spawning. This 30-second check is the cheapest place to catch a collision.
 - **Respect wave barriers.** Wait for all agents in a wave to finish before starting the next wave, since later waves depend on earlier ones. Within a wave there are no dependencies, so they run fully concurrently.
@@ -318,6 +366,8 @@ Either way, **require the agent to state in its report which rubric it actually 
 > **Built-in review rubric (fallback):** walk every changed file and flag, with file:line evidence — **bugs** (logic errors, unhandled edge cases, error-handling gaps); **security** (tenant isolation, authorization, atomicity/TOCTOU, retry safety, multi-step flow completeness, orphaned state, secrets/input validation); **performance** (in-memory aggregation, sequential fan-out, duplicate scans); **consistency** (enum/validation drift, schema↔code column drift, duplicated business rules); and **blast radius** (callers, sibling paths, retries, stale state, downstream systems). Report problems only — no "looks good" findings — each with category, severity, file, line, and a concrete fix. Do **not** flag absent tests (Phase 6 adds them). Read-only: never edit code during review.
 
 Triage the findings yourself. Fold **must-fix** items (bugs, security, correctness) into a fix list for Phase 8. Note nice-to-haves for the user. Don't auto-apply — you decide what's in scope, then fix via agents in Phase 8.
+
+**Under `--no-follow-ups`**, brief the reviewer on the completeness dimension too (unmigrated call sites, partial propagation, reachable-but-unhandled states, orphaned dead code, new `TODO`/`FIXME` markers) and run the grep pre-check yourself first. Remainder findings are must-fix in this run — see *Completeness mode*.
 
 ### Phase 6 — Tests creation
 
@@ -398,7 +448,7 @@ When the loop completes, give the user a tight wrap-up:
 - **Implemented:** the waves/tasks that ran and which runner did each.
 - **Review verdict:** counts by severity + must-fixes addressed.
 - **Tests:** final pass/fail with the command used, split by layer (unit/integration vs e2e). If e2e was skipped — as not applicable or via `--no-e2e` — say so and why; if any e2e step couldn't be automated, include the manual runbook for the remainder.
-- **Open items:** anything deferred, any assumptions logged (calling out those left unverified because `--no-spikes` disabled the experiment), any remaining failures you couldn't resolve.
+- **Open items:** anything deferred, any assumptions logged (calling out those left unverified because `--no-spikes` disabled the experiment), any remaining failures you couldn't resolve. Under `--no-follow-ups`, give the completeness ledger's outcome here — swept in vs. ruled a different ticket — and treat any still-open remainder as something that needs a reason, since the flag's whole promise is that there isn't one.
 - **Next step:** e.g. "review `docs/plans/<slug>.md`", or "run `/code-review` on the branch before pushing".
 
 ## Adapting to reality
