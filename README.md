@@ -88,6 +88,7 @@ The CLI keeps one canonical copy of each skill under `~/.agents/skills/` (or `.a
 | --- | --- | --- |
 | [`code-review`](./skills/code-review) | Read-only review of any change source — PR, branch diff, working tree, recent commits, or code from the conversation | `review`, `quality`, `security`, `performance` |
 | [`appstore-review`](./skills/appstore-review) | Read-only pre-submission audit against the **live** Apple App Store Review Guidelines — fetches the current rules from developer.apple.com, fans out parallel sub-agents per guideline section, returns rejection-risk findings keyed by rule number, or a clean verdict | `review`, `ios`, `app-store`, `compliance`, `mobile` |
+| [`appstore-seo`](./skills/appstore-seo) | App Store & Google Play ASO **plus Apple Ads planning** — pulls the live listing and competitor shelf from Apple's public endpoints, mines keywords against real search data, allocates the indexed character budget, emits character-checked fields (UTF-16, the way App Store Connect counts), then turns the same research into a Brand/Generic/Competitor/Discovery campaign plan with negatives | `aso`, `app-store`, `google-play`, `apple-ads`, `seo`, `marketing`, `mobile` |
 | [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
 | [`create-tasks`](./skills/create-tasks) | Senior Technical PM that turns a PRD, brief, or conversation into a small set of deep, end-to-end dev/QA tasks — performs mandatory deep repo analysis, asks clarifying questions, then writes one Markdown task per file plus a master `INDEX.md` under `docs/tasks/<feature-slug>/` | `tasks`, `engineering`, `tickets`, `planning`, `qa` |
 | [`implement`](./skills/implement) | End-to-end feature-delivery orchestrator — the session model plans, then fans out background sub-agents through investigate → grill → plan → implement → review → tests → run → fix, with per-phase model/harness routing in `AGENTS_CONFIG.yml` (multi-harness per step supported) | `orchestration`, `agents`, `implementation`, `planning`, `tests` |
@@ -134,6 +135,35 @@ npx skills add alamops/skills --skill appstore-review
 ```
 
 Trigger phrases: "run an App Store review", "App Store readiness check", "pre-submission audit", "will Apple reject this?", "is this 4.8-compliant?", "I added Google sign-in — am I OK?", or asking whether a specific change (moving subs off IAP, adding an analytics SDK, a new permission) is allowed. For a general bug/perf/security review, use [`code-review`](./skills/code-review) instead; for *implementing* a feature (Sign in with Apple, IAP, ATT), this skill audits, it doesn't build.
+
+### [`appstore-seo`](./skills/appstore-seo)
+
+App Store Optimization for both stores, run as an engineering task rather than a copywriting one. Most ASO advice is folklore, and it fails on iOS for a structural reason: **Apple does not index the description at all.** Rank comes from a handful of indexed fields with tiny budgets (name 30 / subtitle 30 / keywords 100), and Apple builds search phrases by *combining tokens across them* — so every repeated word is a wasted character. Google Play is the opposite: its long description *is* indexed, so the same copy can't serve both stores.
+
+It also treats **Apple Ads as part of the same job**, because it is: Apple judges ad relevance for a keyword partly from your product page metadata, so the 100-character keyword field is what keeps your cost per tap down — and in the other direction, the Search Terms report is the only record of queries real users actually typed, while the keyword popularity score (0–100) is the only genuine volume figure that exists anywhere. The same research therefore produces both the listing and the campaign plan.
+
+Three modes: **audit** an existing listing, **generate** a full field set pre-launch, or **audit → rewrite** (the common one — never rewrites blind when a live listing exists).
+
+How it works:
+
+- **Pulls ground truth**, never audits from memory. Documented recipes hit Apple's public endpoints — the iTunes lookup API, the store-page JSON (for the subtitle, which the API doesn't expose, and the genuine "You Might Also Like" shelf *with competitor subtitles* — the cheapest competitive keyword corpus there is), and the reviews RSS for the vocabulary real users type. Explicit that the keyword field is private and that Play has no public API.
+- **Mines keywords against live search.** For each candidate term, the Search API gives a difficulty score from the top-10 rating counts, an intent signal, and whether your app ranks at all — so keyword choices are argued from store data. It deliberately refuses to invent a search-volume number: result depth doesn't proxy for volume, and a guessed metric presented as data poisons the whole deliverable.
+- **Checks every field before you see it.** A paste-and-run checker counts in UTF-16 code units the way App Store Connect does (an emoji costs 2), hard-fails on over-limit fields, keyword-field syntax, competitor trademarks and Play's 5-tag cap, and flags the expensive strategy mistakes — words duplicated across name/subtitle/keywords, category names and filler burning keyword budget, unused characters, iOS keyword stuffing, Play keyword density outside 2–5 mentions, boilerplate release notes. It's **stem-aware**, catching `scan` in the keyword field while the name says `Scanner` — a wasted repeat exact-string comparison never sees.
+- **Checks the name against what's already live** — exact collisions with shipping apps and how many already lead with your brand token. A name collision outranks anything in the keyword field — it splits brand search and risks rejection under 4.1 (copycats) or a 5.2 trademark complaint.
+- **Covers conversion, not just ranking** — icon legibility, the first three screenshots (most visitors never scroll), muted-safe previews, ratings strategy, and a Product Page Optimization / Play experiment plan with a recorded baseline.
+- **Builds the Apple Ads plan from the same keyword table.** The scored terms bucket into the four campaigns that have genuinely different economics — Brand (defensive, cheapest, highest-converting), Generic, Competitor, and Discovery (whose job is finding queries you didn't think of) — plus the negative keyword lists, the step teams skip and the reason campaigns look unprofitable when they aren't. It encodes the asymmetry people get backwards: **competitor brand names are standard in Apple Ads and forbidden in the organic keyword field** — same word, opposite rule.
+
+Output is both: copy-paste-ready blocks with live character counts in chat, and durable artifacts under `docs/appstore/` — `audit.md` (a 5-dimension, 100-point scorecard), `keyword-research.md` (the scored table *plus* the terms rejected and why), `metadata.<locale>.md` per locale, `creative-brief.md`, `apple-ads.md` (campaign map, negatives, custom-product-page mapping, and the 4-week loop that mines the Search Terms report back into the listing), and `experiments.md`.
+
+The skill has **no runtime dependency** — no bundled scripts, no libraries. Every mechanical step (pulling the listing, scouting keyword difficulty, checking name collisions, counting UTF-16 characters, bucketing the ad plan) is documented in reference files as paste-and-run standard-library Python that talks to Apple's public endpoints, so it runs anywhere and degrades to by-hand steps where code can't run.
+
+Install just this skill into any compatible agent:
+
+```sh
+npx skills add alamops/skills --skill appstore-seo
+```
+
+Trigger phrases: "improve my app store ranking", "nobody finds my app in search", "review my App Store listing" with an ID or link, "write our store listing before we launch", keyword research for an app, competitor listing teardowns, localizing a listing, planning a store A/B test, or planning Apple Ads keywords and campaign structure. Ongoing bid and budget management of a live ads account is deliberately out of scope — the skill sets the structure that bidding operates inside. For whether Apple will *reject* the app, use [`appstore-review`](./skills/appstore-review) — that one audits compliance, this one audits discovery and conversion.
 
 ### [`to-prd`](./skills/to-prd)
 

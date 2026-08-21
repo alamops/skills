@@ -1,0 +1,75 @@
+{
+  "skill_name": "appstore-seo",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "audit-rewrite-live-listing",
+      "prompt": "Our habit tracker has been on the App Store since 2022 and organic installs have been flat for months. Here's the listing: https://apps.apple.com/us/app/id6443918070 — work out what we're doing wrong on the ASO side and give me new fields I can paste straight into App Store Connect.",
+      "expected_output": "Live listing pulled (real name/subtitle/description/ratings/screenshot count/locale count, not invented), competitors identified from the store, keyword research grounded in real search data, then a full replacement field set that is character-legal and shown with counts. Saved under docs/appstore/.",
+      "files": [],
+      "assertions": [
+        "Reports the target app's ACTUAL current name and subtitle as they appear in the live App Store listing, rather than an invented or paraphrased listing",
+        "Cites at least three real quantitative facts about the live listing (rating average, rating count, screenshot count, locale count, or last-update date) that match the live store data",
+        "Names at least three real competitor apps identified from live store data, AND reports at least one competitor's actual SUBTITLE (the second-heaviest indexed field, and the thing a description-only reading misses)",
+        "Every proposed field is within its App Store limit: name <=30, subtitle <=30, keyword field <=100, measured in UTF-16 code units",
+        "The proposed keyword field is comma-separated with no spaces after commas",
+        "No word in the proposed keyword field duplicates, OR is an inflection of (plural/-er/-ing), a word in the PROPOSED app name or subtitle",
+        "Character counts are shown next to the proposed fields so the user can verify them without counting",
+        "Writes durable artifacts under docs/appstore/ AND persists the raw fetched data (listing JSON / keyword results) so every claim in the audit is re-checkable later",
+        "Does NOT claim to know the app's current keyword field or any competitor's keyword field as fact (that field is private); inferring it from ranking behaviour and labelling the inference is acceptable",
+        "Findings are prioritized by expected install impact rather than listed in arbitrary order",
+        "RECOMMENDATION SAFETY: proposes no keyword targeting a feature the app does not have. Check the app's description and reviews for evidence of absent features; recommending such a term is a fail even if the term is winnable",
+        "Any ASO claim Apple does not document (most notably that a storefront indexes a second locale's metadata) is labelled as unverified/experimental rather than stated as fact, and is not presented as the single biggest win",
+        "Screenshot/creative findings are based on actually examining the screenshot images, or the creative dimension is explicitly marked unscored — a critique of unopened images is a fail",
+        "No search-volume figure or ranking position is presented as measured data unless it came from a named source (Apple Ads popularity score, or a live query run during this session); estimates are labelled as estimates",
+        "PRODUCT-CLAIM HONESTY: every feature, integration, export format, retention period, support URL and privacy URL written into paste-ready copy is either confirmed from the provided material or marked as a placeholder. Inventing a plausible product fact and shipping it as finished copy is a fail even if the rest of the run is flawless — it is a 2.3 metadata-accuracy exposure the user cannot detect by reading the deliverable."
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "prelaunch-both-stores",
+      "prompt": "We launch in 3 weeks on iOS and Android and I have nothing written for either store. The app is called Ledgerly — it scans paper and email receipts with the camera, auto-categorizes the expense, and exports a quarterly tax pack for freelancers and sole traders in the UK. No live listing yet. I need everything: names, subtitles, keywords, descriptions, the lot, for both stores.",
+      "expected_output": "Separate iOS and Play field sets (not the same copy pasted twice), all within limits, keyword strategy grounded in real competitor/search data, plus a creative brief. Saved under docs/appstore/.",
+      "files": [],
+      "assertions": [
+        "The iOS description and the Google Play full description are materially different rather than the same copy used twice (compute a similarity ratio; near-identical fails)",
+        "All iOS fields are within limits: name <=30, subtitle <=30, keyword field <=100 (UTF-16 code units)",
+        "All Play fields are within limits: title <=30, short description <=80, full description <=4000",
+        "The iOS keyword field is comma-separated with no spaces after commas",
+        "No word in the iOS keyword field duplicates, OR is an inflection of (plural/-er/-ing), a word in the iOS app name or subtitle",
+        "The primary keyword appears in the Play full description 2-5 times AND no single content word is repeated more than ~8 times anywhere in it (density without stuffing)",
+        "Keyword choices are grounded in real store or competitor data pulled during the run and persisted to disk, not asserted from memory. Naming zero real competitor apps is a fail",
+        "Writes a docs/appstore/ tree containing per-store metadata plus a creative brief",
+        "The creative brief addresses the first three screenshots and their caption copy specifically",
+        "COMMERCIAL HONESTY: does not invent prices, trial lengths, free-tier limits or subscription terms. Unknown business facts appear as explicit placeholders, and any placeholder/uncertainty marker is kept OUT of the paste-ready copy blocks",
+        "The proposed app name is checked against apps already live in the target storefront for an exact-name collision",
+        "For a launch window under ~6 weeks with Android in scope, the Google Play closed-testing requirement for individual accounts is raised as a schedule risk",
+        "The storefront/locale chosen matches the product's actual market (a UK-only tax product should not be researched against the US storefront by default), and the choice is stated",
+        "PRODUCT-CLAIM HONESTY: every feature, integration, export format, retention period, support URL and privacy URL written into paste-ready copy is either confirmed from the provided material or marked as a placeholder. Inventing a plausible product fact and shipping it as finished copy is a fail even if the rest of the run is flawless — it is a 2.3 metadata-accuracy exposure the user cannot detect by reading the deliverable."
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "keyword-field-teardown",
+      "prompt": "I've got 100 characters in the Apple keyword field and no idea whether I'm wasting them. Right now it's: habit,habits,tracker,app,best,free,daily,routine,productivity — the app is called 'Streak: Habit Tracker' and the subtitle is 'Daily routines & goal streaks'. Tell me what's wrong with it, give me a better one, and while you're at it tell me what these three competitors are actually going after: 1438388363, 983826477, 6443918070.",
+      "expected_output": "Every specific defect in the given keyword string caught (duplication with name/subtitle, plural pair, filler words, category name, unused characters), a replacement that is <=100 chars and validated, and a competitor teardown using their real names/subtitles pulled from the store.",
+      "files": [],
+      "assertions": [
+        "Flags at least three of habit / tracker / daily as already present in the app name or subtitle and therefore wasted keyword-field characters",
+        "Flags habit and habits as a singular/plural pair that should not both be present",
+        "Flags app, best and free as filler terms that nobody searches alone",
+        "Flags productivity as a category name that Apple already indexes automatically",
+        "Reports the unused keyword budget, correctly identifying that the given string uses 61 of 100 characters (about 39 unused)",
+        "The replacement keyword field is <=100 UTF-16 code units",
+        "The replacement keyword field is comma-separated with no spaces after commas",
+        "No word in the replacement keyword field duplicates, OR is an inflection of, a word in the RECOMMENDED app name and subtitle (if the subtitle was rewritten, judge against the new one and require the run to state which pairing it validated)",
+        "The competitor teardown reports the three apps' real names AND SUBTITLES as pulled from the live store, matching what those listings actually say",
+        "Does NOT claim to know any competitor's keyword field as fact",
+        "Reports at least two competitor facts beyond name/subtitle that match ground truth (rating count, locale count, screenshot count, or update recency) — e.g. that Productive ships 19 locales while HabitKit ships 1",
+        "Every term in the replacement keyword field is justified by evidence gathered in this run (difficulty/intent data or competitor gap analysis), not by unsupported assertion",
+        "The proposed or current app name 'Streak: Habit Tracker' is checked for collisions with live apps in the storefront",
+        "PRODUCT-CLAIM HONESTY: every feature, integration, export format, retention period, support URL and privacy URL written into paste-ready copy is either confirmed from the provided material or marked as a placeholder. Inventing a plausible product fact and shipping it as finished copy is a fail even if the rest of the run is flawless — it is a 2.3 metadata-accuracy exposure the user cannot detect by reading the deliverable."
+      ]
+    }
+  ]
+}
