@@ -95,6 +95,17 @@ The CLI keeps one canonical copy of each skill under `~/.agents/skills/` (or `.a
 | [`break-fix`](./skills/break-fix) | Adversarial e2e bug hunt on a *running* app — attacks it as a hostile, confused and impatient user, watches console/network/server logs rather than the viewport, then root-causes each bug, writes a **failing** e2e regression test, fixes it, and proves the suite goes green | `qa`, `e2e`, `testing`, `bug-hunt`, `regression` |
 | [`business-review`](./skills/business-review) | Analyzes a product/business from its public-facing materials, generates and ranks buyer personas, recommends an ICP, pressure-tests positioning and pricing, saves strategy artifacts to `docs/` | `gtm`, `personas`, `icp`, `positioning`, `strategy` |
 | [`rpg-persona`](./skills/rpg-persona) | Hard buyer-persona roleplay with a coaching block after every reply — pressure-tests pitches, messaging, and pricing, saves the transcript and lessons to `docs/ROLEPLAY_NOTES.md`. **Run [`business-review`](./skills/business-review) first** so the roleplay uses real, ranked personas. | `gtm`, `sales`, `roleplay`, `coaching`, `objection-handling` |
+| [`hol-guard`](./skills/hol-guard) | Installs and operates HOL Guard as a local pre-execution boundary for supported coding-agent harnesses | `security`, `agents`, `runtime`, `guardrails` |
+
+### [`hol-guard`](./skills/hol-guard)
+
+A local runtime-safety skill for supported coding-agent harnesses. It installs and invokes the real HOL Guard CLI, discovers the harness from Guard itself, uses Guard-owned setup and health checks, stops protected work on deny/review/error/unavailable states, and keeps application-native controls authoritative.
+
+Install just this skill into a compatible agent:
+
+```sh
+npx skills add alamops/skills --skill hol-guard
+```
 
 ### [`code-review`](./skills/code-review)
 
