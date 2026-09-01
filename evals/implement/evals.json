@@ -22,7 +22,7 @@
       "id": 1,
       "eval_name": "no-follow-ups-hidden-remainder",
       "prompt": "/implement --no-follow-ups --auto Make price display currency-aware: formatPrice should take the currency alongside the cents and render USD, EUR and BRL with Intl.NumberFormat.",
-      "expected_output": "A complete delivery with no remainder: every display path threads a currency (including the two callers that are easy to miss), the currency allow-list and the seeded data are brought along, docs stop documenting the old shape, tests are green, and the plan carries a completeness ledger whose rows are all in-this-run or out-of-scope — never deferred. The prompt deliberately says nothing about completeness, so whatever gets swept in is attributable to the flag rather than to the task text.",
+      "expected_output": "A complete delivery with no remainder: every display path threads a currency (including the two callers that are easy to miss), the currency allow-list and the seeded data are brought along, docs stop documenting the old shape, tests are green, and the plan carries a completeness ledger whose rows are all in-this-run or out-of-scope — never deferred, and never owner-deferred, since the flag removes that option. The prompt deliberately says nothing about completeness. Since the completeness contract is now the skill's default, most of the sweep is expected with or without the flag (see the no-flag variant); what the flag specifically buys is the guarantee that the ledger closes with zero owner-deferred rows and that the report defends any open remainder.",
       "files": [
         "orders-service fixture: USD-only formatPrice(cents) in src/money.js, called by src/cart.js and src/checkout.js directly, by src/report/weekly.js through a src/util barrel re-export, and by scripts/export-orders.js from outside src/; a USD-only allow-list in config/currencies.js; data/seed-orders.json rows carrying pre-rendered \"$129.00\" strings and no currency field; docs/pricing.md and README.md documenting the single-argument call; unit tests over money and the weekly report"
       ],
@@ -38,7 +38,30 @@
         "README.md and docs/pricing.md show the currency argument and mention the new currencies",
         "Test suite is green when the grader re-runs it independently",
         "Plan persisted under docs/plans/",
-        "Plan carries a completeness ledger whose rows are dispositioned in-this-run (with a task ID) or out-of-scope (with a reason) — no row reads deferred",
+        "Plan carries a completeness ledger whose rows are dispositioned in-this-run (with a task ID) or out-of-scope (with a reason) — no row reads deferred or owner-deferred",
+        "Scope boundary held: no adjacent feature invented (FX conversion, app-wide locale support, or a downstream-owned output schema changed) under the banner of completeness"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "default-completeness-no-flag",
+      "prompt": "/implement --auto Make price display currency-aware: formatPrice should take the currency alongside the cents and render USD, EUR and BRL with Intl.NumberFormat.",
+      "expected_output": "Same fixture and task as the no-follow-ups eval, with no completeness flag. The completeness contract is the default, so the run should still thread a currency through every display path, bring the allow-list, seed data and docs along, leave no deferral markers, and carry a completeness ledger — but its rows may only be in-this-run or out-of-scope, because under --auto there is no owner to defer. A run that ships the direct callers and lists the barrel re-export, the script outside src/, or the seed backfill under 'Open items' as deferred has self-deferred, which the default forbids. This eval exists to prove the baseline is not 'follow-ups allowed' — the flag's absence must not lower the bar.",
+      "files": [
+        "orders-service fixture: USD-only formatPrice(cents) in src/money.js, called by src/cart.js and src/checkout.js directly, by src/report/weekly.js through a src/util barrel re-export, and by scripts/export-orders.js from outside src/; a USD-only allow-list in config/currencies.js; data/seed-orders.json rows carrying pre-rendered \"$129.00\" strings and no currency field; docs/pricing.md and README.md documenting the single-argument call; unit tests over money and the weekly report"
+      ],
+      "assertions": [
+        "No single-argument formatPrice call left in production code — every display path threads a currency",
+        "Hidden surface swept: src/report/weekly.js, which reaches formatPrice through the src/util barrel rather than importing it directly",
+        "Hidden surface swept: scripts/export-orders.js, a caller outside src/",
+        "Propagation surface swept: config/currencies.js lists EUR and BRL, not just USD",
+        "Data surface swept: seeded orders carry an explicit currency rather than relying on an implicit USD default",
+        "No deferral markers (TODO/FIXME/XXX/HACK) in the shipped code",
+        "README.md and docs/pricing.md show the currency argument and mention the new currencies",
+        "Test suite is green when the grader re-runs it independently",
+        "Plan persisted under docs/plans/ and carries a completeness ledger (§9) even though no completeness flag was passed",
+        "Every ledger row is dispositioned in-this-run (with a task ID) or out-of-scope (with a reason); no row reads deferred, and no row reads owner-deferred since --auto has no owner",
+        "The final report's Open items contain no remainder 'deferred by the run' — anything listed there is out-of-scope with a reason, an assumption, or an unresolved failure",
         "Scope boundary held: no adjacent feature invented (FX conversion, app-wide locale support, or a downstream-owned output schema changed) under the banner of completeness"
       ]
     }
