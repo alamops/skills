@@ -32,6 +32,23 @@ python3 evals/trigger_race.py \
   --eval-set evals/implement/trigger_eval.json --runs 8
 ```
 
+Race a skill against siblings that aren't installed yet — the phase skills split out
+of `implement` are the case this exists for, since a near-miss like "grill me on the
+edge cases, then build it" only tests something if `implement` and `grill` are both
+in the race:
+
+```sh
+python3 evals/trigger_race.py \
+  --skill skills/grill \
+  --also-install skills/investigate --also-install skills/write-plan \
+  --also-install skills/execute-plan --also-install skills/write-tests --also-install skills/test-loop \
+  --eval-set evals/grill/trigger_eval.json --cwd ~/code/some-real-app
+```
+
+The same flag answers the regression question when a new skill lands next to an old
+one: run the old skill's eval set with and without the newcomers co-installed and
+compare the two reports.
+
 The script temporarily points `~/.claude/skills/<name>` at the version under test
 and restores it afterwards — via `try/finally`, signal handlers, and an `atexit`
 hook, so it comes back even if you Ctrl-C. Nothing is deleted, only moved aside.

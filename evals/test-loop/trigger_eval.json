@@ -1,0 +1,14 @@
+[
+  {"query": "CI is red on this branch — get it green. both npm test and npm run test:e2e need to pass", "should_trigger": true},
+  {"query": "run the whole test suite including the playwright e2e and tell me what's failing, split by unit and e2e", "should_trigger": true},
+  {"query": "the cypress suite is flaky on the settings page, fails like 1 in 5 runs. figure out why and fix it properly, no retries", "should_trigger": true},
+  {"query": "code review came back with 3 must-fix findings in docs/review.md. fix them and re-run the suite until it's green", "should_trigger": true},
+  {"query": "npm test has 12 failures after the rebase, sort it out — and dont just skip them", "should_trigger": true},
+  {"query": "run the e2e tests for me — you'll need to bring up the api and postgres with docker compose first", "should_trigger": true},
+  {"query": "write tests for the new DELETE endpoint on my branch", "should_trigger": false},
+  {"query": "bug bash the app — click around like an angry user and see what explodes", "should_trigger": false},
+  {"query": "production checkout is throwing 500s since the last deploy, find out why", "should_trigger": false},
+  {"query": "set up github actions to run our tests on every PR", "should_trigger": false},
+  {"query": "build the csv export feature and get the tests green", "should_trigger": false},
+  {"query": "review my branch diff before i open the PR", "should_trigger": false}
+]

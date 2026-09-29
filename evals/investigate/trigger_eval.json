@@ -1,0 +1,15 @@
+[
+  {"query": "before we touch anything — we want to move sessions off the express-session memory store onto redis. dig through the repo and git history and tell me every place that reads or writes the session, whether anyone tried this before, and whether connect-redis v7 even works with our express version. dont change code yet", "should_trigger": true},
+  {"query": "we're considering swapping moment for date-fns across the app. research what that would actually involve here — every import, the weird locale stuff in utils/dates, and whether date-fns-tz handles our DST edge cases. just the investigation, planning comes later", "should_trigger": true},
+  {"query": "map the blast radius of renaming the `status` column on orders to `state`: callers, serializers, the admin dashboard, the nightly jobs in scripts/, fixtures, seed data, all of it. i need the full inventory before i write the migration", "should_trigger": true},
+  {"query": "is it feasible to switch our pdf invoices from puppeteer to pdf-lib? look at how invoices get generated now and check whether pdf-lib can do our table layouts on node 20 — prove it with a quick throwaway test instead of guessing — then write up what you find", "should_trigger": true},
+  {"query": "product wants per-workspace rate limits. before anyone plans it, investigate how rate limiting works in the api today, what middleware we already have and how we use redis. facts with file references plus a list of the questions i actually need to answer", "should_trigger": true},
+  {"query": "research only, no spikes this time: we want to add a currency field to invoices. find every place invoice totals get formatted or summed and anything in git history about a previous attempt at this", "should_trigger": true},
+  {"query": "our checkout page takes 4s to load in prod but its fine locally. can you figure out whats going on?", "should_trigger": false},
+  {"query": "walk me through how the retry/backoff logic in queue/worker.ts works, i inherited this service and dont get the math", "should_trigger": false},
+  {"query": "add redis-backed sessions to the express app — investigate, plan, build it and get the tests green, i dont want to babysit each step", "should_trigger": false},
+  {"query": "prototype a throwaway script that hits the openai batch api and tells me roughly what itd cost per month at 50k docs. i just want the number, nothing shipped", "should_trigger": false},
+  {"query": "write me a PRD for per-workspace rate limits — problem, personas, requirements, success metrics", "should_trigger": false},
+  {"query": "users are getting 500s on /api/export since yesterday's deploy, find the cause and fix it", "should_trigger": false},
+  {"query": "start a 3 day time-boxed spike on offline caption caching for ios — scope it and set up the spike branch", "should_trigger": false}
+]

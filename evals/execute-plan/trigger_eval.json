@@ -1,0 +1,13 @@
+[
+  {"query": "docs/plans/soft-delete.md is approved. execute it — fan the tasks out wave by wave. i'll review and write the tests myself afterwards", "should_trigger": true},
+  {"query": "run the waves in docs/plans/date-fns-migration.md with parallel agents. just the code changes, commit a checkpoint per wave", "should_trigger": true},
+  {"query": "here's the approved plan (docs/plans/webhook-retry.md). code it up from the plan — review and tests i'll handle separately", "should_trigger": true},
+  {"query": "the team invites plan we wrote yesterday is signed off. kick off the implementation waves now, only the coding part", "should_trigger": true},
+  {"query": "fan these out to agents: wave 1 is T1 (owns src/store.js) and T2 (owns src/validate.js), wave 2 is T3 wiring server.js. just write the code, no tests", "should_trigger": true},
+  {"query": "execute docs/plans/soft-delete.md and take it all the way — code, review, tests, fix until green", "should_trigger": false},
+  {"query": "write the plan for soft delete first, we'll execute it later", "should_trigger": false},
+  {"query": "fix the typo in the error message in src/auth/login.ts — it says 'Ivalid credentials'", "should_trigger": false},
+  {"query": "rename getUser to fetchUser in src/api/users.ts and update its two callers", "should_trigger": false},
+  {"query": "run the test suite and fix whatever is failing", "should_trigger": false},
+  {"query": "can you review the diff on my branch before i open the PR?", "should_trigger": false}
+]
