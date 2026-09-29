@@ -92,6 +92,12 @@ The CLI keeps one canonical copy of each skill under `~/.agents/skills/` (or `.a
 | [`to-prd`](./skills/to-prd) | Drafts a Product Requirements Document from a description, conversation, provided files, media, or a whole repo (forward or reverse-engineered from existing code) — asks clarifying questions first, saves to `docs/` | `product`, `prd`, `planning`, `requirements` |
 | [`create-tasks`](./skills/create-tasks) | Senior Technical PM that turns a PRD, brief, or conversation into a small set of deep, end-to-end dev/QA tasks — performs mandatory deep repo analysis, asks clarifying questions, then writes one Markdown task per file plus a master `INDEX.md` under `docs/tasks/<feature-slug>/` | `tasks`, `engineering`, `tickets`, `planning`, `qa` |
 | [`implement`](./skills/implement) | End-to-end feature-delivery orchestrator — the session model plans, then fans out background sub-agents through investigate → grill → plan → implement → review → tests → run → fix, with per-phase model/harness routing in `AGENTS_CONFIG.yml` (multi-harness per step supported) | `orchestration`, `agents`, `implementation`, `planning`, `tests` |
+| [`investigate`](./skills/investigate) | `implement`'s Phase 1 on its own — parallel read-only research over the codebase, git history and live docs, plus scratchpad spikes that *prove* load-bearing assumptions; saves a brief with a completeness inventory of every caller and data surface to `docs/plans/<slug>-investigation.md` | `research`, `planning`, `blast-radius`, `spikes` |
+| [`grill`](./skills/grill) | `implement`'s Phase 2 on its own — a grounded, hard interrogation of the owner that leaves no load-bearing unknown before planning; records each decision with its source and disposition in `docs/plans/<slug>-grill.md` (`--auto` self-grills and escalates one-way doors) | `requirements`, `planning`, `questions`, `edge-cases` |
+| [`write-plan`](./skills/write-plan) | `implement`'s Phase 3 on its own — a decomposition-ready plan with file-disjoint tasks, execution waves, an explicit e2e decision and a completeness ledger, saved to `docs/plans/<slug>.md` in the format `implement`/`execute-plan` run from | `planning`, `decomposition`, `agents` |
+| [`execute-plan`](./skills/execute-plan) | `implement`'s Phase 4 on its own — runs a plan's coding waves with parallel agents that never share a file, a no-TODO completeness clause, and a checkpoint commit per wave | `orchestration`, `agents`, `implementation` |
+| [`write-tests`](./skills/write-tests) | `implement`'s Phase 6 on its own — unit/integration/e2e tests partitioned by module, extending the existing harness, run once, with product defects reported rather than bent around | `tests`, `e2e`, `coverage` |
+| [`test-loop`](./skills/test-loop) | `implement`'s Phases 7–8 on its own — runs the whole suite (owning the e2e app lifecycle), triages product vs test vs flake, fixes with file-disjoint agents and re-runs to green without ever skipping or loosening a test | `tests`, `e2e`, `ci`, `flaky-tests` |
 | [`break-fix`](./skills/break-fix) | Adversarial e2e bug hunt on a *running* app — attacks it as a hostile, confused and impatient user, watches console/network/server logs rather than the viewport, then root-causes each bug, writes a **failing** e2e regression test, fixes it, and proves the suite goes green | `qa`, `e2e`, `testing`, `bug-hunt`, `regression` |
 | [`business-review`](./skills/business-review) | Analyzes a product/business from its public-facing materials, generates and ranks buyer personas, recommends an ICP, pressure-tests positioning and pricing, saves strategy artifacts to `docs/` | `gtm`, `personas`, `icp`, `positioning`, `strategy` |
 | [`rpg-persona`](./skills/rpg-persona) | Hard buyer-persona roleplay with a coaching block after every reply — pressure-tests pitches, messaging, and pricing, saves the transcript and lessons to `docs/ROLEPLAY_NOTES.md`. **Run [`business-review`](./skills/business-review) first** so the roleplay uses real, ranked personas. | `gtm`, `sales`, `roleplay`, `coaching`, `objection-handling` |
@@ -231,7 +237,7 @@ Trigger phrases: "create dev tasks", "break this PRD into tasks", "scaffold engi
 
 1. **`to-prd`** — produce the PRD (`docs/<feature>-prd.md`), surfacing personas, requirements, success metrics, and risks.
 2. **`create-tasks`** — turn that PRD plus a deep repo scan into the task set under `docs/tasks/<feature-slug>/`.
-3. **`implement`** — orchestrate the actual build: investigate, grill, plan, then fan out background agents to code, review, and test each task.
+3. **`implement`** — orchestrate the actual build: investigate, grill, plan, then fan out background agents to code, review, and test each task. (Or run any single phase on its own: `investigate`, `grill`, `write-plan`, `execute-plan`, `write-tests`, `test-loop`.)
 4. **`code-review`** — review each PR as engineers ship the tasks; feed any structural findings back into the next task set.
 5. **`break-fix`** — once the feature is running, hunt it adversarially for the bugs a diff review can't see (state, timing, session, real-user misuse), and leave a regression test behind for each one.
 
@@ -265,6 +271,82 @@ npx skills add alamops/skills --skill implement
 ```
 
 Trigger phrases: "/implement", "build this feature end-to-end", "orchestrate the implementation", "plan and implement X", "run a multi-agent build", "/implement --config", "/implement --auto X", "/implement --no-e2e --no-spikes X", "/implement --no-follow-ups X", "/implement --nofollowup X", "finish this completely, I don't want a follow-up PR".
+
+#### Running `implement`'s phases à la carte
+
+Each delivery phase is also its own skill, for when you want one step rather than the whole loop — investigate a change without committing to build it, get grilled on a spec, hand a plan to someone else, or just get a red suite green. `implement` itself is unchanged and self-contained; these are standalone extracts that run on the session's native sub-agents (they don't read `AGENTS_CONFIG.yml` — per-phase model and harness routing stays an `implement` feature).
+
+| Phase | Skill | Reads | Writes |
+| --- | --- | --- | --- |
+| 1 | [`investigate`](./skills/investigate) | the ask | `docs/plans/<slug>-investigation.md` |
+| 2 | [`grill`](./skills/grill) | the investigation, if any | `docs/plans/<slug>-grill.md` |
+| 3 | [`write-plan`](./skills/write-plan) | investigation + grill, if any | `docs/plans/<slug>.md` |
+| 4 | [`execute-plan`](./skills/execute-plan) | the plan | code on a feature branch, one commit per wave |
+| 5 | [`code-review`](./skills/code-review) | the diff | findings |
+| 6 | [`write-tests`](./skills/write-tests) | the plan's test tasks, or the branch diff | tests |
+| 7–8 | [`test-loop`](./skills/test-loop) | the suite, plus any must-fix review findings | fixes, until green |
+
+Every step works without the ones before it — each grounds itself when there's no prior artifact — and the artifacts share a slug, so a later step (or a later session) finds what an earlier one left. The plan format is the one `implement` writes, so `/implement` can pick up a `write-plan` plan and drive it the rest of the way.
+
+### [`investigate`](./skills/investigate)
+
+Ground truth before anyone plans. Fans out read-only research agents in parallel — codebase (entry points, sibling paths, utilities, how the app runs, the e2e harness), git history (prior attempts, reverts, recent churn), and live library docs — then runs **spikes**: the smallest throwaway code, confined to the scratchpad, that proves or disproves an assumption reading can't settle ("does `Intl` format BRL correctly on our Node?" gets a command and its output, not an opinion). Synthesizes *what we know / proved / assume / must ask*, a **completeness inventory** (every caller including re-exports and scripts outside `src/`, every propagation point, existing data a migration must backfill, docs that describe current behavior), and the runnability picture. Read-only on source; `--no-spikes` turns the experiments into explicitly unverified questions.
+
+```sh
+npx skills add alamops/skills --skill investigate
+```
+
+Trigger phrases: "investigate X before we build it", "map the blast radius of this change", "find every call site this migration touches", "is this approach feasible here — prove it", "research only, no spikes".
+
+### [`grill`](./skills/grill)
+
+A hard, respectful interrogation of the owner, grounded in the code first so it never asks what the repo already answers. Presses in one or two structured passes on scope, business rules, edge/error/permission states, data and contract changes, budgets, rollout, the acceptance bar — and every would-be follow-up, each dispositioned *in this change*, *out of scope*, or *owner-deferred* (removed by `--no-follow-ups`). Offers recommended defaults so answering is cheap, pushes back on vague answers, and leads with evidence rather than asking about settled facts. `--auto` grills with nobody there: writes the full question set first, answers each from evidence → repo convention → ecosystem default → judgment with a confidence mark, takes the reversible option, and escalates one-way doors instead of guessing.
+
+```sh
+npx skills add alamops/skills --skill grill
+```
+
+Trigger phrases: "grill me on this before I build it", "poke holes in this spec", "what am I missing?", "interrogate me on the open questions", "ask me the hard questions — don't accept vague answers".
+
+### [`write-plan`](./skills/write-plan)
+
+Turns an understood change into a plan parallel agents can execute without colliding. Builds the **completeness ledger first** and lets it feed the breakdown, then partitions the work so no two tasks in a wave own the same file (watching the hot spots that quietly break a partition — registries, barrels, lockfiles, migrations, shared fixtures), orders the waves by dependency, and decides e2e applicability explicitly with a run recipe. Saves to `docs/plans/<slug>.md` in `implement`'s template and presents it for approval; changes no code.
+
+```sh
+npx skills add alamops/skills --skill write-plan
+```
+
+Trigger phrases: "write an implementation plan for X", "break this into parallelizable work", "plan this change before we code it", "turn this spec into an execution plan".
+
+### [`execute-plan`](./skills/execute-plan)
+
+Runs a plan's coding waves — just the code. Cuts a branch and records the base SHA, validates each wave's file ownership before spawning, briefs every agent with its owned files and a completeness clause (no `TODO`/stub standing in for in-scope work; remainder outside its files comes back to the coordinator instead of becoming a marker), holds the barrier between waves, and commits a checkpoint per wave so a failure resumes from the last green one. Stops before review and tests — follow with `code-review`, `write-tests`, `test-loop`, or use `implement` for the whole loop.
+
+```sh
+npx skills add alamops/skills --skill execute-plan
+```
+
+Trigger phrases: "execute this plan — just the code", "run the waves in docs/plans/X.md", "fan these tasks out to agents".
+
+### [`write-tests`](./skills/write-tests)
+
+Writes the tests a change needs from its *intent* (plan, ticket, PR), not just its diff — unit, integration, and e2e whenever the change crosses a process boundary, with "not applicable" recorded as a decision rather than an omission. Extends the existing harness and fixtures, partitions agents by module under test, keeps e2e deterministic, and runs every new test once. A test that exposes a real product bug stays failing and gets reported with evidence — never loosened or skipped to go green.
+
+```sh
+npx skills add alamops/skills --skill write-tests
+```
+
+Trigger phrases: "write tests for the changes on my branch", "add e2e coverage for checkout", "backfill tests for this module".
+
+### [`test-loop`](./skills/test-loop)
+
+Runs the whole suite and drives it to green. Owns the e2e lifecycle itself (install, start services, seed, boot the app and wait for real readiness, run headless, keep traces, tear down) and hands back only what genuinely can't be automated, as a precise runbook. Triages before fixing — clusters failures by root cause, re-runs e2e once to separate flakes from defects, decides whether the product or the test is wrong, and separates pre-existing failures from ones the change caused — then fixes with file-disjoint agents and re-runs everything, capped at three rounds. Skipping, deleting, loosening assertions, and blind snapshot updates are off the table.
+
+```sh
+npx skills add alamops/skills --skill test-loop
+```
+
+Trigger phrases: "run the tests", "CI is red — get it green", "fix the failing/flaky tests", "fix these review findings and re-run".
 
 ### [`break-fix`](./skills/break-fix)
 

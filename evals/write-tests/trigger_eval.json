@@ -1,0 +1,13 @@
+[
+  {"query": "i just added DELETE /entries/:id on this branch. write the tests for it — unit and e2e", "should_trigger": true},
+  {"query": "billing/proration.ts has zero tests and it scares me. backfill coverage for it, edge cases included", "should_trigger": true},
+  {"query": "add playwright e2e tests for the checkout flow — happy path plus the card-declined and expired-session cases", "should_trigger": true},
+  {"query": "write tests for the changes on my branch vs main. we use jest for unit and cypress for e2e", "should_trigger": true},
+  {"query": "the plan in docs/plans/soft-delete.md has a test task section — write those tests now, the code already landed", "should_trigger": true},
+  {"query": "CI is red, the e2e suite is failing on checkout. get it green", "should_trigger": false},
+  {"query": "try to break the signup flow like a malicious user would and write a regression test for anything you find", "should_trigger": false},
+  {"query": "build the export-to-csv feature end to end, with tests, and get everything green", "should_trigger": false},
+  {"query": "run the unit tests and tell me what fails", "should_trigger": false},
+  {"query": "review the tests in this PR and tell me if they're any good", "should_trigger": false},
+  {"query": "our playwright test on the settings page fails about 1 in 5 runs — fix the flake", "should_trigger": false}
+]

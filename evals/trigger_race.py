@@ -38,6 +38,11 @@ Usage
         --baseline ~/.agents/skills/implement \
         --eval-set evals/implement/trigger_eval.json --runs 8
 
+    # Race a skill against siblings that aren't installed yet (repeatable)
+    python3 evals/trigger_race.py --skill skills/grill \
+        --also-install skills/investigate --also-install skills/write-plan \
+        --eval-set evals/grill/trigger_eval.json
+
 Run it from a repo where the queries make sense. Triggering is context-sensitive:
 queries about a billing service score near zero inside a docs-only repo no matter
 how good the description is, because Claude orients with `ls` instead of reaching
@@ -56,6 +61,7 @@ import signal
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from pathlib import Path
 
 SKILLS_DIR = Path.home() / ".claude" / "skills"
@@ -236,6 +242,11 @@ def main():
     parser.add_argument("--model", default="claude-opus-5", help="Model for claude -p")
     parser.add_argument("--timeout", type=int, default=120, help="Per-run timeout seconds")
     parser.add_argument("--json", default=None, help="Write results to this path")
+    parser.add_argument("--also-install", action="append", default=[], metavar="DIR",
+                        help="Another skill directory to install for the whole run, in both "
+                             "arms (repeatable). Use it when the skills a query should lose "
+                             "to aren't installed yet -- a near-miss negative only means "
+                             "something if its rightful owner is in the race.")
     args = parser.parse_args()
 
     args.cwd = Path(args.cwd).resolve()
@@ -247,13 +258,23 @@ def main():
         sys.exit("error: baseline skill name differs from candidate; they must be "
                  "two versions of the same skill")
 
+    also = [(skill_name_of(d), d) for d in args.also_install]
+    if any(extra == name for extra, _ in also):
+        sys.exit("error: --also-install names the candidate skill itself")
+
     print("skill: {}  |  queries: {}  |  runs each: {}  |  cwd: {}".format(
         name, len(evals), args.runs, args.cwd))
+    if also:
+        print("co-installed: {}".format(", ".join(extra for extra, _ in also)))
 
     results = {"skill": name, "cwd": str(args.cwd), "runs": args.runs,
-               "candidate": run_arm("CANDIDATE", args.skill, name, evals, args, claude_bin)}
-    if args.baseline:
-        results["baseline"] = run_arm("BASELINE", args.baseline, name, evals, args, claude_bin)
+               "also_installed": [extra for extra, _ in also]}
+    with ExitStack() as stack:
+        for extra, source in also:
+            stack.enter_context(TemporarilyInstalled(extra, source))
+        results["candidate"] = run_arm("CANDIDATE", args.skill, name, evals, args, claude_bin)
+        if args.baseline:
+            results["baseline"] = run_arm("BASELINE", args.baseline, name, evals, args, claude_bin)
 
     if args.json:
         Path(args.json).write_text(json.dumps(results, indent=2))

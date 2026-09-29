@@ -1,0 +1,14 @@
+[
+  {"query": "grill me on this before i build it: users can pause their subscription for 1, 2 or 3 months, billing skips those cycles, access continues", "should_trigger": true},
+  {"query": "here's the spec for team invites in docs/specs/invites.md. poke holes in it — ask me every hard question about edge cases before we plan anything", "should_trigger": true},
+  {"query": "what am i missing? we're adding soft delete to projects. ask me the questions i haven't thought about — existing rows, reports, restores, whatever else", "should_trigger": true},
+  {"query": "there's an investigation in docs/plans/csv-export-investigation.md with a bunch of open questions. interrogate me on them so we can settle everything before planning", "should_trigger": true},
+  {"query": "im offline for the rest of the day. run the hard-questions pass on the refund-window change by yourself — answer from the code and our conventions, mark your confidence, and flag anything irreversible for me to decide", "should_trigger": true},
+  {"query": "before we plan the multi-currency work i want you to interrogate me properly — scope, edge cases, migrations, rollout, what done means. dont let me get away with vague answers", "should_trigger": true},
+  {"query": "roleplay a skeptical CFO and grill me on my pricing pitch for our analytics product", "should_trigger": false},
+  {"query": "write a PRD for a referral program: existing users get a month free when someone they invite subscribes", "should_trigger": false},
+  {"query": "review the diff on my branch and grill the code — mostly worried about tenant isolation in the new report queries", "should_trigger": false},
+  {"query": "we're adding a pause-subscription feature — 1/2/3 months, billing skips, access continues. i want the whole thing built: db migration, api, settings ui, tests. grill me on the edge cases first though", "should_trigger": false},
+  {"query": "turn docs/specs/invites.md into engineering tickets with acceptance criteria and QA steps", "should_trigger": false},
+  {"query": "do a mock system design interview with me — grill me on designing a url shortener", "should_trigger": false}
+]

@@ -1,0 +1,14 @@
+[
+  {"query": "write an implementation plan for adding soft delete to projects — tasks, which files each touches, what can run in parallel. dont write any code yet", "should_trigger": true},
+  {"query": "we settled the open questions in docs/plans/csv-export-grill.md. turn that into an execution plan in docs/plans that agents could run in parallel", "should_trigger": true},
+  {"query": "plan out how we'd migrate from moment to date-fns: break it into waves so several agents can do it without stepping on each other's files", "should_trigger": true},
+  {"query": "draft the plan for the team-invites feature from docs/prd/team-invites.md — work breakdown, a test plan incl. whether e2e applies, and a list of every follow-up so nothing gets left half done", "should_trigger": true},
+  {"query": "before we code the webhook retry queue i need a proper implementation plan i can review: approach, alternatives, risks, rollback, execution waves", "should_trigger": true},
+  {"query": "break the pause-subscription change into parallelizable tasks with file ownership. ill review the plan tomorrow before anything gets built", "should_trigger": true},
+  {"query": "i've got docs/prd/team-invites.md written up already. take it from there and drive the whole implementation — plan, code, review, tests. i'll approve the plan but otherwise dont make me babysit", "should_trigger": false},
+  {"query": "turn docs/prd/team-invites.md into engineering tickets — one per layer, with acceptance criteria and QA steps", "should_trigger": false},
+  {"query": "write a PRD for team invites — personas, requirements, success metrics", "should_trigger": false},
+  {"query": "docs/plans/soft-delete.md is approved. execute it wave by wave — just the code, ill review and test it myself", "should_trigger": false},
+  {"query": "grill me on the soft delete feature before we plan it — existing rows, reports, restores", "should_trigger": false},
+  {"query": "we need to decide between temporal and inngest for our workflow engine. write up a comparison with pros/cons and give me a recommendation", "should_trigger": false}
+]
