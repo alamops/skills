@@ -1,0 +1,10 @@
+name: release
+on: { push: { tags: ['v*'] } }
+jobs:
+  ship:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: '26.4' }
+      - run: bundle exec fastlane release

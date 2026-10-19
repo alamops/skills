@@ -1,0 +1,7 @@
+default_platform(:ios)
+platform :ios do
+  lane :release do
+    build_app(scheme: "TrailMap", export_method: "app-store")
+    upload_to_app_store(skip_metadata: false, skip_screenshots: false, submit_for_review: true)
+  end
+end

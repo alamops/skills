@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "MoodNote",
+    "slug": "moodnote",
+    "version": "2.4.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "moodnote",
+    "ios": {
+      "bundleIdentifier": "com.moodnote.app",
+      "buildNumber": "112",
+      "supportsTablet": false,
+      "requireFullScreen": true,
+      "usesAppleSignIn": false,
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSCameraUsageDescription": "camera",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "@react-native-google-signin/google-signin",
+      ["@stripe/stripe-react-native", { "merchantIdentifier": "merchant.com.moodnote" }],
+      ["react-native-appsflyer", {}],
+      ["expo-camera", { "cameraPermission": "camera" }]
+    ]
+  }
+}

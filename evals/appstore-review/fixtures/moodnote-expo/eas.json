@@ -1,0 +1,17 @@
+{
+  "cli": { "version": ">= 12.0.0" },
+  "build": {
+    "production": {
+      "ios": {
+        "image": "macos-sequoia-15.5-xcode-16.4",
+        "resourceClass": "m-medium"
+      },
+      "env": { "APP_ENV": "production" }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": { "ascAppId": "6501234567", "appleTeamId": "ABCDE12345" }
+    }
+  }
+}

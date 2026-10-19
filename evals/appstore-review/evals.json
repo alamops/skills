@@ -1,0 +1,50 @@
+{
+  "skill_name": "appstore-review",
+  "evals": [
+    {
+      "id": 1,
+      "eval_name": "duo-readiness-native",
+      "fixture": "evals/appstore-review/fixtures/trailmap-ios",
+      "prompt": "iPhone Duo goes on sale Friday and we're submitting TrailMap 3.2 to the App Store next week. Will Apple reject us because of the foldable? What do we actually have to change now, and what can wait until later? The repo is at {repo}.",
+      "expected_output": "A direct answer (no Duo-specific review rule today) plus dated deadlines (April 2027 iOS 27 SDK / Duo screenshots), the scene-lifecycle requirement for iOS 27 SDK builds, and Duo layout risks with file:line evidence, without inventing guideline numbers or editing the repo.",
+      "assertions": [
+        "Answers the direct question plainly: no current App Review guideline rejects an app simply for not being optimized for iPhone Duo",
+        "Does not cite any guideline number (e.g. 2.4.1) as if it were an iPhone Duo / foldable requirement, and attaches no guideline number to the Duo compatibility-mode (letterboxed) item",
+        "Flags that building with the iOS 27 SDK requires the UIScene life cycle (or the app fails to launch), citing the AppDelegate window setup in TrailMap/AppDelegate.swift",
+        "States that from April 2027 uploads need the iOS 27 SDK and that iPhone Duo screenshots become required, and either notes Apple's conflicting scope for the screenshot rule (any app vs. apps built with the iOS 27.1 SDK) or plans for the broader reading",
+        "Flags UIRequiresFullScreen and/or the portrait-only orientation in TrailMap/Info.plist as an iPhone Duo resize/layout risk, with file evidence",
+        "Flags the UIScreen.main.bounds-based frame layout or fixed 360pt chart in TrailMap/MapViewController.swift as breaking when the display changes, with file:line",
+        "Correctly treats the pinned Xcode 26.4 (release.yml) as meeting today's iOS 26 SDK upload minimum (not a current upload blocker), while noting it runs in Duo compatibility/letterboxed mode or that Xcode 27.1 is needed for Duo optimization",
+        "Mentions the iPhone Duo screenshot set / product page badge in connection with the fastlane Snapfile or App Store Connect",
+        "Does not flag TARGETED_DEVICE_FAMILY = 1 (iPhone-only) as an iPhone Duo problem",
+        "Separates what must change now from what is a future, dated requirement",
+        "Shows evidence the live guidelines were fetched this run (cites the Last Updated date October 16, 2026 or quotes current rule text)",
+        "Does not modify any file in the project repo",
+        "Notes that Xcode 27.1 requires macOS Tahoe 26.6 or later, so the macos-15 runner in .github/workflows/release.yml can't build a Duo-optimized version",
+        "The headline verdict is not driven by absence-only findings: the declared-but-unused background location mode in this trimmed repo is graded as a risk with its condition stated, not as a blocker"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "expo-full-audit",
+      "fixture": "evals/appstore-review/fixtures/moodnote-expo",
+      "prompt": "we're submitting MoodNote 2.4 to the App Store next week \u2014 expo app, we build + submit with EAS. can you run a full app store review on the repo at {repo} and tell me everything that's going to get us rejected or blocked?",
+      "expected_output": "Findings keyed to current guideline numbers with file:line evidence for each planted defect: no account deletion, 4.8 login parity, in-app Stripe for a digital subscription, web billing link vs storefronts, third-party AI consent, hidden remote-flag feature, AppsFlyer without ATT, EAS image below the SDK minimum, weak camera purpose string; plus upcoming iOS 27 items.",
+      "assertions": [
+        "Flags missing in-app account deletion under 5.1.1(v) with evidence from the sign-up / settings code",
+        "Flags Google Sign-In without an equivalent privacy-preserving login option under 4.8",
+        "Flags the in-app Stripe PaymentSheet used to sell the MoodNote Pro digital subscription as a 3.1.1 violation (blocker)",
+        "Handles the 'Manage billing on the web' link with storefront nuance: allowed in the United States storefront without an entitlement, but a problem in other storefronts (the README says the app ships worldwide)",
+        "Flags sending journal text and the user's name/email to OpenAI without disclosure and explicit permission, citing 5.1.2(i) (third-party AI)",
+        "Flags the rewards_wall remote-config flag ('keep false while in App Review') as a hidden/dormant feature under 2.5.19",
+        "Flags AppsFlyer initialised without an ATT prompt / NSUserTrackingUsageDescription (5.1.2 / App Tracking Transparency)",
+        "Flags the EAS build image macos-sequoia-15.5-xcode-16.4 as below the current Xcode 26 / iOS 26 SDK upload minimum (upload blocker)",
+        "Flags the NSCameraUsageDescription / cameraPermission value 'camera' as an inadequate purpose string",
+        "Flags that Expo SDK 54's iOS template is not scene-based, so building with the iOS 27 SDK (e.g. EAS 'latest' / Xcode 27) would fail to launch \u2014 as upcoming or risk, not as a current blocker",
+        "Every guideline number cited exists in the live October 16, 2026 guidelines (no invented or obsolete numbers such as 2.3.1 for hidden features; section-level 'N.0' citations count as imprecise)",
+        "Does not modify any file in the project repo",
+        "Flags the missing in-app privacy policy link under 5.1.1(i)"
+      ]
+    }
+  ]
+}

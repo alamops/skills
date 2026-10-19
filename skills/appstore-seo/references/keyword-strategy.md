@@ -6,12 +6,17 @@ How to find the terms, judge whether they're winnable, and spend a 160-character
 
 ## What Apple actually ranks on
 
-Ranking for a query is roughly a product of two things:
+Ranking for a query is roughly a product of two things — and Apple now says so in as many words: "text relevance (matches for your app's title, subtitle, keywords, and primary category), as well as user behavior (downloads, ratings and reviews, and more)" (`developer.apple.com/app-store/search/`).
 
-1. **Relevance** — does the term appear in an indexed field (name, subtitle, keyword field, developer name, IAP names, live in-app events)?
+1. **Relevance** — does the term appear in an indexed field (name, subtitle, keyword field, primary and secondary category, developer name, IAP names, live in-app events)?
 2. **Strength** — downloads and velocity for that term, conversion rate from impression to install, ratings volume and average, retention, and engagement.
 
 The first is the part you write. The second is the part you earn, and it's why a brand-new app cannot out-rank an incumbent on a head term just by putting the term in its name. It's also why conversion work is ASO work rather than a separate discipline: better screenshots raise conversion, conversion feeds strength, strength raises rank for terms you already match.
+
+Two 2025–26 surfaces sit alongside the indexed fields without changing the core model:
+
+- **App Store tags** (US only) are LLM-generated from en-US metadata and act as browse entry points. You can deselect but not write them — so clear, specific copy is how you steer them (`apple-fields.md`).
+- **Custom product pages can own keywords** in organic search. That doesn't add indexed terms (CPP keywords must come from the approved keyword field), but it decides which page a searcher lands on — see *Allocating the budget*.
 
 ## The research loop
 
@@ -33,7 +38,7 @@ Three axes, kept in a table in the deliverable so every choice is auditable.
 
 **Volume (1–5)** — how many people search it.
 
-> No public endpoint exposes search volume, and result-set depth does not proxy for it — a nonsense phrase still returns ~180 fuzzy matches from the search API. If the user has Apple Ads, its **keyword popularity score (0–100)** is the real number and its Search Terms report lists the queries users actually typed: use both and say so — see `apple-ads.md`. Otherwise triangulate from competitor adoption, category conventions, and Google keyword tools, and **label it an estimate in the deliverable**. Presenting a guessed volume as data is the fastest way to lose the user's trust in the whole document.
+> No public endpoint exposes search volume, and result-set depth does not proxy for it — a nonsense phrase still returns ~180 fuzzy matches from the search API. If the user has Apple Ads, its **keyword popularity score (1–100)** is the real number and its Search Terms report lists the queries users actually typed: use both and say so — see `apple-ads.md`. Otherwise triangulate from competitor adoption, category conventions, and Google keyword tools, and **label it an estimate in the deliverable**. Presenting a guessed volume as data is the fastest way to lose the user's trust in the whole document.
 
 **Difficulty (1–5)** — derived from the median rating count of the top 10 (`data-and-endpoints.md` §4). Three incumbents with 500k+ ratings own that term for the foreseeable future, regardless of what you write.
 
@@ -51,6 +56,8 @@ Because Apple combines tokens across all three, write **single tokens**, not phr
 
 Word-order note: Apple's combination is not strictly order-free in practice for every query, and exact-phrase matches in the name do carry weight. When one phrase is genuinely the term to win, put it in the name in the order users type it, and let the keyword field cover the combinations.
 
+**Then plan the routing.** With up to 70 custom product pages and keyword assignment, the keyword field also decides *where* each searcher lands. After the field is written, group its terms into intent clusters (an expense app: `receipt,scan,ocr` / `mileage,trip,drive` / `invoice,client,billing`) and decide which clusters deserve their own page — a cluster earns a CPP when its searchers need a different first screenshot to convert. Rules worth stating in the deliverable: CPP keywords come only from the latest approved version's keyword field; "each keyword combination is unique to a single product page"; and a CPP is searchable only once approved and visible. This is a deliverable section (`experiments.md` or `apple-ads.md`), not paste-ready metadata — the pages have to be designed and approved first.
+
 ## Storefronts and locales
 
 A storefront may index more than one locale's metadata, which would effectively multiply the keyword budget for that market. The widely-repeated case: in the **US storefront, English (U.S.) and Spanish (Mexico) metadata are both said to be indexed** — so filling in the es-MX localization would add a second name, subtitle, and 100-character keyword field working for US search, even for users browsing in English.
@@ -60,6 +67,10 @@ A storefront may index more than one locale's metadata, which would effectively 
 So when you recommend it, say what it is: an unverified, low-cost experiment, with the test attached. Fill the second locale for one storefront, leave everything else unchanged, and watch whether terms unique to that locale start ranking. That measurement is the whole point — without it you are asking someone to act on a rumour, and you will never know whether it worked.
 
 The same standard applies to every other multi-locale pairing: **verify before building a strategy on it.**
+
+What *is* documented: App Store Connect Help (*App Store localizations*) now publishes which localizations each storefront supports, and it's the right starting list for any storefront you target. The US storefront lists English (U.S.) plus nine others — Arabic, Chinese (Simplified and Traditional), French, Korean, Portuguese (Brazil), Russian, Spanish (Mexico), Vietnamese. **India** lists English (U.K.) plus eleven Indian languages added in March 2026 (Bangla, Gujarati, Hindi, Kannada, Malayalam, Marathi, Odia, Punjabi, Tamil, Telugu, Urdu); Pakistan adds Urdu, Slovenia adds Slovenian. "Supported in a storefront" means the localization can be shown there — it's not Apple saying it's indexed for ranking. So the US–es-MX technique keeps its unverified label even though es-MX appears in the US list.
+
+India is the case where localization is clearly worth doing on its own merits: users search in their own script, the eleven new locales each carry a full name/subtitle/keyword budget, and few competitors have filled them yet. Two cautions: keyword research has to be done per language by someone who reads it (search behaviour mixes native script and romanized English — both may be worth covering), and multi-byte scripts may hit the keyword field's byte limit long before 100 visible characters (`validation.md`).
 
 **Localization is not translation.** Keywords do not translate: people search different concepts, not different words for the same concept. A machine-translated keyword field is worse than an empty one because it looks finished. Every locale gets its own research pass, ideally with a native speaker reviewing the term list.
 
@@ -71,7 +82,7 @@ Metadata changed without a recorded baseline can't be attributed, which is how A
 
 - The exact "before" values for every field changed, with the date
 - The date the change went live (an iOS keyword change ships with a build; promotional text does not)
-- **Impressions, product page views, and conversion rate** from App Store Connect / Play Console — not just rank
+- **Impressions, product page views, and conversion rate** from App Store Connect / Play Console — not just rank. App Store Connect still has no keyword-level organic data; filter App Analytics by source (App Store Search) and by product page (default vs. each CPP) to get as close as it allows
 - Rank for the target terms, sampled on a schedule rather than once
 
 Then wait. Indexing takes days to settle, and reading a rank change in the first 48 hours mostly reads noise. Change one dimension at a time where you can — if the keyword field and all the screenshots change in the same release, the result is uninterpretable no matter how good it is.

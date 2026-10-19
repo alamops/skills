@@ -1,0 +1,7 @@
+devices([
+  "iPhone 17 Pro Max",
+  "iPhone 16 Plus"
+])
+languages(["en-US"])
+scheme("TrailMap")
+output_directory("./fastlane/screenshots")
