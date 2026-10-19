@@ -13,7 +13,7 @@ Counted in **UTF-16 code units**. Stable year over year, but Apple/Google do cha
 | name | 30 | | title | 30 |
 | subtitle | 30 | | short_description | 80 |
 | keywords | 100 | | full_description | 4000 |
-| promotional_text | 170 | | | |
+| promotional_text | 170 | | release_notes (What's new) | 500 |
 | description | 4000 | | **IAP** name / description | 30 / 45 |
 | whats_new | 4000 | | **in-app event** name / short / long | 30 / 50 / 120 |
 
@@ -28,6 +28,8 @@ def clen(s):  # exactly how App Store Connect counts — emoji cost 2, accents c
 
 Any field where `clen(field) > limit` is a **hard fail** — fix it before showing anything.
 
+**The keyword field may be counted in bytes.** App Store Connect Help describes it as "100 bytes"; Apple's search page says "100 characters". For ASCII they're identical. For Hindi, Bangla, Tamil, Arabic, Thai, Hebrew, Chinese, Japanese or Korean each character is 2–3 bytes in UTF-8, so a field can be 60 characters and 180 bytes. Until it's clear which App Store Connect enforces, the checker warns whenever the UTF-8 byte count passes 100 — tell the user to paste that locale's field into App Store Connect to confirm before treating it as final.
+
 ## Keyword-field rules
 
 The 100-character keyword field is where most budget is won or lost. Hard fails and warnings:
@@ -37,7 +39,8 @@ The 100-character keyword field is where most budget is won or lost. Hard fails 
 - **No category names** (`productivity`, `utilities`, `health`, `fitness`, `finance`, `games`, `travel`, `weather`, `education`, `music`, `photo`, `video`, `business`, `social`, `shopping`, `reference`, `navigation`, `medical`, `developer`, `tools`, …). Apple auto-indexes the category — spending keyword characters on it is double-paying.
 - **No dead filler:** `app, apps, free, best, top, new, download, the, and, for, with, your, you, get, now, ios, iphone, ipad, mobile, great, awesome`, and stop words. Nobody searches these alone.
 - **Soft modifiers are a judgment call, not filler:** `simple, easy, minimal, minimalist, premium, pro, offline, private, secure, fast, smart, daily, quick`. People *do* search "simple habit tracker" — keep one only if the Search-API scout (`data-and-endpoints.md` §4) measured the phrase as winnable. Don't drop it reflexively.
-- **No competitor brands / trademarks** — Apple strips them and it invites a 5.2 complaint. (In Apple **Ads**, the opposite is true — see `apple-ads.md`.)
+- **No competitor brands / trademarks** — App Store Connect Help: "Names of other apps or companies aren't allowed." Apple strips them and it invites a 5.2 complaint. (In Apple **Ads**, the opposite is true — see `apple-ads.md`.)
+- **No one- or two-character terms.** Current Help text says each keyword should be "greater than two characters" — `ai`, `tv`, `uk`, `3d` may be rejected or ignored. Warn; prefer a longer form or confirm App Store Connect accepts it.
 - **Use the whole 100.** Unused budget is free ranking surface left on the table (flag if under ~90).
 
 ### Stemming
@@ -92,7 +95,11 @@ def check(f, avoid=(), primary=None):
         if soft: warn.append(f"keywords: soft modifiers {soft} — keep only if scouted winnable")
         hit=[t for t in low for b in avoid if b.lower() in t]
         if hit: err.append(f"keywords: competitor/trademark {hit}")
-        if clen(kw)<90: warn.append(f"keywords: only {clen(kw)}/100 used")
+        short=[t for t in terms if clen(t)<=2]
+        if short: warn.append(f"keywords: terms of <=2 chars {short} — Help says each must be greater than two characters")
+        nb=len(kw.encode("utf-8"))
+        if nb>100: warn.append(f"keywords: {nb} UTF-8 bytes (>100) — confirm in App Store Connect, which may count bytes")
+        if clen(kw)<90 and nb<=100: warn.append(f"keywords: only {clen(kw)}/100 used")
     d=f.get("description","")
     if d:
         c={}
@@ -107,9 +114,11 @@ def check(f, avoid=(), primary=None):
 #        "keywords":"reminder,checklist,journal,motivation,discipline,consistency,ritual,calendar,challenge,mood,planner"})
 ```
 
-For Play, run the same `clen` limits on title (30) / short_description (80) / full_description (4000), and count the primary keyword in the long description (want 2–5).
+For Play, run the same `clen` limits on title (30) / short_description (80) / full_description (4000) / release notes (500), count the primary keyword in the long description (want 2–5), and check the title and short description against Play's metadata policy by eye: no emoji, no ALL CAPS (unless the brand is), no ranking, price or promotional words (`#1`, `best`, `new`, `free`, `% off`).
 
 ## What to fix vs. flag
 
 - **ERROR (over limit, comma syntax, competitor brand, missing required field):** fix before showing anything.
-- **warn (duplication, category names, filler, unused budget, stuffing):** almost always worth fixing, but they're strategy calls — a soft-modifier you scouted as winnable is a legitimate keep. Resolve each; don't ship with unexplained warnings.
+- **warn (duplication, category names, filler, short terms, byte count, unused budget, stuffing):** almost always worth fixing, but they're strategy calls — a soft-modifier you scouted as winnable is a legitimate keep. Resolve each; don't ship with unexplained warnings.
+
+The checker doesn't see creative copy. For screenshot captions and the text in header / search-result creative assets, apply the 2.3.7 / 2.3.14 rules by eye: no prices or discounts, no unverifiable claims (`#1`, `best`), no URLs, no Apple awards, no other platforms' names.

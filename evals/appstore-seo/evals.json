@@ -22,7 +22,8 @@
         "Any ASO claim Apple does not document (most notably that a storefront indexes a second locale's metadata) is labelled as unverified/experimental rather than stated as fact, and is not presented as the single biggest win",
         "Screenshot/creative findings are based on actually examining the screenshot images, or the creative dimension is explicitly marked unscored — a critique of unopened images is a fail",
         "No search-volume figure or ranking position is presented as measured data unless it came from a named source (Apple Ads popularity score, or a live query run during this session); estimates are labelled as estimates",
-        "PRODUCT-CLAIM HONESTY: every feature, integration, export format, retention period, support URL and privacy URL written into paste-ready copy is either confirmed from the provided material or marked as a placeholder. Inventing a plausible product fact and shipping it as finished copy is a fail even if the rest of the run is flawless — it is a 2.3 metadata-accuracy exposure the user cannot detect by reading the deliverable."
+        "PRODUCT-CLAIM HONESTY: every feature, integration, export format, retention period, support URL and privacy URL written into paste-ready copy is either confirmed from the provided material or marked as a placeholder. Inventing a plausible product fact and shipping it as finished copy is a fail even if the rest of the run is flawless — it is a 2.3 metadata-accuracy exposure the user cannot detect by reading the deliverable.",
+        "Records the live promotional text (read from the store page, where it is prepended to the description) as a before-value, or states that none was detected — never claims promotional text can't be seen from outside"
       ]
     },
     {
@@ -69,6 +70,28 @@
         "Every term in the replacement keyword field is justified by evidence gathered in this run (difficulty/intent data or competitor gap analysis), not by unsupported assertion",
         "The proposed or current app name 'Streak: Habit Tracker' is checked for collisions with live apps in the storefront",
         "PRODUCT-CLAIM HONESTY: every feature, integration, export format, retention period, support URL and privacy URL written into paste-ready copy is either confirmed from the provided material or marked as a placeholder. Inventing a plausible product fact and shipping it as finished copy is a fail even if the rest of the run is flawless — it is a 2.3 metadata-accuracy exposure the user cannot detect by reading the deliverable."
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "duo-creative-refresh",
+      "prompt": "iPhone Duo just launched and Apple added new product page header and search result assets. We're HabitKit (https://apps.apple.com/us/app/id6443918070). What should our App Store creative plan be now — which assets and sizes do we need, what are the rules on what we can put in them, and should we be doing custom product pages for organic search? Put the plan in docs/appstore so the designer can work from it.",
+      "expected_output": "A creative plan grounded in the live listing, with correct 2026 specs (iPhone Duo outer/inner sizes, badge, April 2027 mandate; 21:9 header and 3:2 search assets for iOS 27+), the 2.3.14 and 2.3.3 rules, CPPs (70, keyword assignment from the approved keyword field), honest about what public data can't show, saved under docs/appstore/.",
+      "files": [],
+      "assertions": [
+        "Gives the iPhone Duo screenshot sizes correctly (outer 1398x2034 and inner 2007x2853, or their landscape equivalents)",
+        "States that iPhone Duo screenshots become required in April 2027 and that submitting them earns an 'optimized for iPhone Duo' badge",
+        "Describes the search result asset as 3:2 and the product page header as 21:9 (or the 16:9 universal asset), shown on iOS 27 / iPadOS 27 or later",
+        "States 2.3.14 limits on creative assets: no specific or discounted pricing AND no unverifiable product claims",
+        "States the custom product page limit as 70 (not 35) and that CPP keywords for organic search are assigned from the app's existing approved keyword field",
+        "Mentions App Review's rule that more than half of the screenshots (per device type) must show the app in use",
+        "Does not present screenshot caption text as definitely indexed by Apple search",
+        "Reports HabitKit's actual live name and subtitle (Habit Tracker - HabitKit / Streaks & Accountability) pulled during the run",
+        "If competitors are named, they come from the You Might Also Like (similarItems) shelf or search results, NOT the developer's own other apps (FocusKit, Liftbear, Mood Tracker - Win Diary)",
+        "Ties the iPhone Duo screenshot set to a build that actually renders for Duo rather than recommending mockups",
+        "Does not assert as fact that the app lacks a search result asset, custom product pages or iPhone Duo screenshots (not visible from public data); the product page header and the served screenshot class may legitimately be read from the store page JSON",
+        "Writes the plan under docs/appstore/ (e.g. creative-brief.md)",
+        "States that the header and search result assets can be swapped without a new app version"
       ]
     }
   ]
