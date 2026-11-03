@@ -22,6 +22,12 @@ SHARED = {
         "skills/test-loop/scripts/quality_gates.py",
         "skills/break-fix/scripts/quality_gates.py",
     ],
+    # The owner-facing decision form (Phase 2 of implement, all of grill).
+    "skills/grill/scripts/decision_form.mjs": ["skills/implement/scripts/decision_form.mjs"],
+    "skills/grill/assets/decision-form/index.html": ["skills/implement/assets/decision-form/index.html"],
+    "skills/grill/assets/decision-form/example.questions.json": ["skills/implement/assets/decision-form/example.questions.json"],
+    "skills/grill/assets/decision-form/types.d.ts": ["skills/implement/assets/decision-form/types.d.ts"],
+    "skills/grill/references/decision-form.md": ["skills/implement/references/decision-form.md"],
     "skills/implement/references/build-rules.md": [
         "skills/execute-plan/references/build-rules.md",
         "skills/test-loop/references/build-rules.md",

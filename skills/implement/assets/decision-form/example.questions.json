@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "id": "invoice-csv-export-grill-r1",
+  "title": "Grill — CSV export for invoices",
+  "skill": "grill",
+  "slug": "invoice-csv-export",
+  "round": 1,
+  "flags": ["--no-e2e"],
+  "summary": "Before this gets planned: **11 decisions** the build would otherwise make silently, plus one that only matters if you export internal notes. Start with the **Blocking** one and the two that **shape the plan**; the confirm list at the end is defaults I'd bet on — one click each.\n\nSource: ticket `BILL-412` (committed as `docs/specs/invoice-csv-export.md`).",
+  "proven": [
+    {
+      "text": "**No background job needed.** The export query runs in 4.2 s over 50k invoices on a copy of prod-sized seed data, under the 10 s request timeout.",
+      "evidence": [{ "label": "spike: timed the query", "path": "docs/plans/invoice-csv-export-investigation.md", "line": 88 }]
+    },
+    "Invoices are already tenant-scoped through `scopedQuery()` (`src/billing/invoices.ts:22`), so the export inherits isolation by reusing it."
+  ],
+  "sections": [
+    {
+      "id": "scope",
+      "title": "Scope & business rules",
+      "intro": "These decide which rows the file contains, so they shape the query and the tests.",
+      "questions": [
+        {
+          "id": "soft-deleted",
+          "type": "single",
+          "title": "Should invoices of soft-deleted customers appear in the export?",
+          "impact": "blocking",
+          "why": "Decides the WHERE clause and whether the billing-period totals in the file match the dashboard.",
+          "context": "The dashboard total **includes** them (`reports/usage.sql:40` has no `deleted_at` filter), but the customer list hides them. If the export drops them, its totals won't match the dashboard for any month with a churned customer.",
+          "evidence": [
+            {
+              "label": "dashboard query: no deleted_at filter",
+              "path": "reports/usage.sql",
+              "line": 38,
+              "lang": "sql",
+              "code": "SELECT customer_id, SUM(amount_cents)\nFROM invoices\nJOIN customers USING (customer_id)\nWHERE period = $1\nGROUP BY customer_id;"
+            },
+            { "label": "customer list filters them", "path": "src/customers/list.ts", "line": 17 }
+          ],
+          "options": [
+            { "id": "include", "label": "Include them, flagged", "description": "Rows stay, with a `customer_status` column reading `deleted`.", "consequence": "Totals match the dashboard; one extra column." },
+            { "id": "exclude", "label": "Leave them out", "description": "Same rows the customer list shows.", "consequence": "Totals stop matching the dashboard for churned months." },
+            { "id": "toggle", "label": "Let the user choose", "description": "A checkbox on the export dialog, off by default.", "consequence": "One more UI state to build and test." }
+          ],
+          "recommendation": { "value": "include", "reason": "Finance reconciles the file against the dashboard, and a flag column keeps that true without hiding anything." }
+        },
+        {
+          "id": "date-boundary",
+          "type": "single",
+          "title": "Which time zone decides whether an invoice falls inside the selected date range?",
+          "impact": "shape",
+          "why": "An invoice issued at 23:30 on the 31st lands in a different month depending on the answer.",
+          "options": [
+            { "id": "tenant", "label": "The tenant's configured time zone", "description": "`tenants.timezone`, already used by the monthly statement." },
+            { "id": "utc", "label": "UTC", "description": "What the database stores; simplest query." },
+            { "id": "browser", "label": "The user's browser time zone" }
+          ],
+          "recommendation": { "value": "tenant", "reason": "The monthly statement already uses it (`src/billing/statement.ts:61`), so both documents agree on what 'March' means." }
+        },
+        {
+          "id": "columns",
+          "type": "multi",
+          "title": "Which optional columns go in the file?",
+          "impact": "minor",
+          "why": "Each one is a join and a test; the required columns (number, date, customer, amount, currency) are always in.",
+          "options": [
+            { "id": "tax", "label": "Tax breakdown", "description": "One column per tax line." },
+            { "id": "po", "label": "Customer PO number" },
+            { "id": "notes", "label": "Internal notes", "description": "Free text, may hold staff comments." },
+            { "id": "payment", "label": "Payment status and date" }
+          ],
+          "min": 1,
+          "recommendation": { "value": ["tax", "payment"], "reason": "These are what the two finance tickets that asked for this (BILL-398, BILL-405) mention." }
+        },
+        {
+          "id": "notes-visibility",
+          "type": "single",
+          "title": "Who may export the internal notes column?",
+          "impact": "blocking",
+          "oneWayDoor": true,
+          "showIf": { "question": "columns", "in": ["notes"] },
+          "why": "Notes can hold staff-only comments; exporting them widens who can read them.",
+          "context": "Today only the `billing_admin` role can see notes in the UI (`src/billing/policy.ts:12`). The export endpoint would be reachable by every role that can open the invoices page.",
+          "options": [
+            { "id": "admins", "label": "billing_admin only", "description": "Same rule as the UI; the column is absent for everyone else." },
+            { "id": "everyone", "label": "Anyone who can export", "description": "Widens access to notes." }
+          ],
+          "recommendation": { "value": "admins", "reason": "Keeps today's access rule; widening it is a separate decision." }
+        }
+      ]
+    },
+    {
+      "id": "limits",
+      "title": "Limits & failure states",
+      "questions": [
+        {
+          "id": "max-rows",
+          "type": "number",
+          "title": "What's the most rows one export may contain before we refuse and ask the user to narrow the range?",
+          "impact": "shape",
+          "why": "Above ~200k rows the response passes the 10 s timeout, and the plan would need a background job after all.",
+          "unit": "rows",
+          "min": 1000,
+          "max": 200000,
+          "step": 1000,
+          "recommendation": { "value": 100000, "reason": "Twice the largest tenant's yearly volume (48k), and well inside the measured timeout." }
+        },
+        {
+          "id": "too-many-message",
+          "type": "longtext",
+          "title": "What does the user see when the range exceeds that limit?",
+          "impact": "minor",
+          "placeholder": "The exact message, or what it should convey",
+          "recommendation": { "value": "This range has more than 100,000 invoices. Pick a shorter date range and export again.", "reason": "States the limit and the fix; matches the tone of the existing import errors." }
+        },
+        {
+          "id": "priorities",
+          "type": "rank",
+          "title": "If we have to cut one thing to ship this sprint, rank what matters most.",
+          "impact": "minor",
+          "options": [
+            { "id": "correct-totals", "label": "Totals that match the dashboard" },
+            { "id": "excel", "label": "Opens cleanly in Excel (UTF-8 BOM, `;` locales)" },
+            { "id": "speed", "label": "Download starts within 2 s" }
+          ],
+          "recommendation": { "value": ["correct-totals", "excel", "speed"], "reason": "A wrong total is a support ticket; a slow download is an annoyance." }
+        }
+      ]
+    },
+    {
+      "id": "inputs",
+      "title": "Material from you",
+      "questions": [
+        {
+          "id": "sample-file",
+          "type": "upload",
+          "title": "Do you have a CSV finance already imports into their accounting tool? Drop it here.",
+          "impact": "minor",
+          "why": "Matching their column order and date format saves a round of rework.",
+          "accept": ".csv,.xlsx,.png,.jpg",
+          "multiple": true,
+          "maxSizeMB": 10,
+          "required": false
+        },
+        {
+          "id": "done-means",
+          "type": "text",
+          "title": "Anything that has to be true before you'd call this done, beyond the acceptance list in the spec?",
+          "required": false,
+          "placeholder": "e.g. finance signs off on a sample file"
+        }
+      ]
+    },
+    {
+      "id": "confirm",
+      "title": "Confirm or override",
+      "intro": "Low-stakes defaults I'd bet on. Confirm with one click, or override with what it should be.",
+      "questions": [
+        {
+          "id": "filename",
+          "type": "confirm",
+          "title": "File name",
+          "recommendation": { "value": "`invoices-<tenant-slug>-<from>-to-<to>.csv`", "reason": "Sortable, and unique per range." }
+        },
+        {
+          "id": "encoding",
+          "type": "confirm",
+          "title": "Encoding and separator",
+          "recommendation": { "value": "UTF-8 with BOM, comma-separated, amounts as decimals with a dot", "reason": "The BOM makes Excel read accents correctly; the importer in `src/import/csv.ts` already parses this shape." }
+        },
+        {
+          "id": "audit",
+          "type": "confirm",
+          "title": "Audit log",
+          "recommendation": { "value": "Each export writes an `invoice.exported` audit event with the range and row count", "reason": "Every other bulk read in billing does (`src/audit/events.ts:30`)." }
+        }
+      ]
+    }
+  ]
+}
