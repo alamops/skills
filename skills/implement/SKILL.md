@@ -40,9 +40,12 @@ Each flag is a deliberate trade the user chose, so make it auditable rather than
 3. **Honor the config.** Detect the **host harness** first — it decides how a runner is reachable — then resolve each phase's runner(s) from `AGENTS_CONFIG.yml`. Don't silently substitute a different model. If a configured runner is unavailable, fall back per the *Runner resolution* rules and **tell the user you did**.
 4. **Gate on the human at the two real decision points.** Stop for the user after **investigation** (to grill and confirm) and after **planning** (to approve before any code is written). These two gates are the skill's contract with the owner, not a formality to route around when the task feels clear — only `--auto` turns them off (see *Autonomous mode*). Don't stop for approval at every micro-step, though; that defeats the purpose.
 5. **Persist the plan.** The plan is a durable artifact saved under `docs/plans/`, not just a chat message. Everything downstream references it.
-6. **Read-only until the plan is approved.** Phases 1–3 must not modify the repo. The first write to a tracked file happens in Phase 4, after the user signs off. Investigation *spikes* are not an exception to this — they write and run throwaway code, but only inside the scratchpad, never in the working tree (see Phase 1).
+6. **Read-only until the plan is approved.** Phases 1–3 must not modify the repo. The first write to a tracked file happens in Phase 4, after the user signs off. The only new files before that are the plan, and the spec copy Phase 3 saves next to it. Investigation *spikes* are not an exception to this — they write and run throwaway code, but only inside the scratchpad, never in the working tree (see Phase 1).
 7. **Finish the loop.** Don't declare done until implementation, review, and tests have actually run and you've reported concrete results (review verdict + test output). If tests fail, say so with the output; don't paper over it.
 8. **Track progress.** Maintain a visible checklist (see below) so the user can see which phase you're in and what each agent is doing.
+9. **Done means wired.** A unit that is written, exported and unit-tested, but that no production entry point ever reaches, is not done. It's the most expensive kind of remainder, because every checkbox and every report line says it's finished, so nobody goes looking for it. The same goes for the feature's own outputs. If the objective is "produce X", some production path has to create X, and some test has to drive that path from the entry point.
+10. **Claims match evidence at the final head.** Every "done" you write has to be backed by evidence at the final commit. That covers the plan's ledger, the report, a PR body, a generated summary, and commit messages. "Wired" means you found the caller. "Tested" means you have the run's counts. "Fixed" means you re-ran the scenario. Write claims last, after the final run, and never from memory of an earlier wave. A stale claim misleads the next reader more than no claim would.
+11. **The contract lives in the repo.** Every spec, PRD or decision the build relies on has to be readable by a reviewer from the repo itself. Cite it by repo-relative path. A path on your machine, a chat link, or a line number in a file nobody else has doesn't count. When the build changes the spec, the change is a visible diff, and a human approves it. Your own approval doesn't count.
 
 ## Autonomous mode (`--auto`)
 
@@ -92,6 +95,8 @@ Under `--auto` there is no owner to defer, so the two collapse: every remainder 
 Work the change *itself* creates, which a reviewer would call unfinished:
 
 - **Every call site, not the first one.** All callers migrated to the new path; the old path deleted, or deliberately kept with a stated reason.
+- **The wiring.** Every new function, handler, job, message type, config key and metric is reachable from a production entry point (boot, route table, job registry, scheduler, `main`). If something is exported and tested but called only by its tests, it gets wired or deleted. It never ships as "available". A config key that is parsed but never read counts as unwired, and so does a value hard-coded at its use site that the config claims to own.
+- **The outputs the objective names.** If the feature exists to produce something, such as a record, a message, a commit or an outbound call, a production path creates it, and an assembled test drives that path. A renderer for the output, with nothing that ever enqueues it, means the feature is missing.
 - **The states the new code can actually reach** — errors, empty, loading, permission-denied, the boundary values — not just the path the demo walks.
 - **The full propagation surface** of a shape change: types, enums, validation, serializers, API contracts, client SDKs, fixtures, seed data, generated artifacts.
 - **The data the change implies** — the migration *and* the backfill for existing rows, since new-rows-only is the classic deferred half.
@@ -110,8 +115,8 @@ The test that separates them: if this shipped as-is, would a reviewer call it **
 - **Phase 1 (investigate).** The codebase agents return a **completeness inventory** alongside their findings: every caller of what's changing, every place a shape propagates, the existing-data surface a migration would have to backfill. The ledger is only as good as this list, and enumerating it now is far cheaper than discovering it mid-wave.
 - **Phase 2 (grill).** The completeness questions are on every run's list, near the front: which callers exist, what happens to the rows already there, which failure states a user can reach, what gets deleted when this lands. Each answer resolves to *in this run*, *out of scope* with a reason, or — only when the owner actually says so — *owner-deferred*. A question that never got asked doesn't produce a deferral; it produces remainder you own. Under `--no-follow-ups`, or under `--auto` where nobody is there to defer, the third answer isn't available: turn "we'll handle that later" into in or out, now.
 - **Phase 3 (plan).** Carry the **completeness ledger** (§9 of the template) on every run: every candidate follow-up you or the investigation surfaced, dispositioned as *in this run* (with the task ID that owns it), *out of scope* (with why it's a different ticket), or *owner-deferred* (with who decided and where it's recorded). A row that says "deferred" with no owner behind it is not a disposition — it's a task you forgot to write. The ledger is also your honest scope estimate: it's where the owner sees *how much* the sweep adds before a line of code is written, and where they get to defer if that's their call.
-- **Phase 4 (implement).** Every brief carries the completeness clause: no `TODO`/`FIXME`/stub/`NotImplementedError` standing in for work inside the task's scope. An agent that finds remainder *outside* its file boundaries reports it back instead of reaching across (which collides) or leaving a marker (which is a self-deferral) — you schedule it into the next wave.
-- **Phase 5 (review).** Completeness is a dimension of the rubric: unmigrated call sites, partial propagation, reachable states with no handling, orphaned dead code, new deferral markers. A cheap mechanical pre-check first — grep the diff for added `TODO|FIXME|XXX|HACK` and placeholder throws — since that catches the obvious half in seconds. Findings of this kind are **correctness findings, so must-fix**: a caller left on the old path is a bug, not a nice-to-have. The one exception is remainder the ledger records as *owner-deferred* — fine on a default run, a defect under `--no-follow-ups`.
+- **Phase 4 (implement).** Every brief carries the completeness clause: no `TODO`/`FIXME`/stub/`NotImplementedError` standing in for work inside the task's scope. An agent that finds remainder *outside* its file boundaries reports it back instead of reaching across (which collides) or leaving a marker (which is a self-deferral) — you schedule it into the next wave. The phase ends with a **wiring audit**: every new export traced to a production caller. Anything that isn't wired gets a task.
+- **Phase 5 (review).** Completeness is a dimension of the rubric: unmigrated call sites, partial propagation, reachable states with no handling, orphaned dead code, new deferral markers, and **unwired code**. A cheap mechanical pre-check comes first. Grep the diff for added `TODO|FIXME|XXX|HACK` and placeholder throws, and re-run the wiring audit. Together they catch the obvious half in seconds. Findings of this kind are **correctness findings, so must-fix**: a caller left on the old path is a bug, not a nice-to-have. The one exception is remainder the ledger records as *owner-deferred* — fine on a default run, a defect under `--no-follow-ups`.
 - **Phases 6–8.** The states the sweep pulled in get tested like anything else, and the loop still has to close green.
 - **Report.** State the ledger's outcome in three lists: swept in, ruled out of scope (and why), owner-deferred (and by whom). "Deferred by the run" is not a fourth list. Under `--no-follow-ups` the third list is empty by construction; if anything is still genuinely open, name it and say why — a non-empty remainder under the flag needs an explanation, not a bullet.
 
@@ -209,10 +214,10 @@ Implement progress — <feature>
 - [ ] Phase 1  Investigate (spawned N agents: codebase / git-history / web / spikes)
 - [ ] Phase 2  Grill & confirm (unknowns resolved with the owner — or self-answered under --auto)
 - [ ] Phase 3  Plan written & approved (docs/plans/<slug>.md)
-- [ ] Phase 4  Implement (M independent tasks across K agents)
+- [ ] Phase 4  Implement (M independent tasks across K agents) — wiring audit clean
 - [ ] Phase 5  Code review (code-review skill if present, else built-in rubric) — verdict
 - [ ] Phase 6  Tests created (P independent tasks; unit/integration + e2e when applicable)
-- [ ] Phase 7  Tests run (background agent; full suite incl. e2e when applicable) — pass/fail
+- [ ] Phase 7  Tests run (background agent; full suite incl. e2e and CI's static gates) — pass/fail, skips accounted for
 - [ ] Phase 8  Tests fixed (if needed) — re-run to green
 ```
 
@@ -229,9 +234,13 @@ Parallel agents multiply tokens, not just speed — a multi-agent build burns on
 Goal: understand the ground truth before asking the user anything, so your questions are sharp and your plan is grounded.
 
 **You decide how many agents to spawn** based on the surface area of the request. A typical fan-out:
-- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast. Have one of them also capture the **runnability picture**: how the app starts locally (dev command, services, env vars, seed data) and whether an e2e harness exists (framework, test command, fixtures) — Phases 3/6/7 need this to decide whether and how e2e coverage runs. Under `--no-e2e`, skip only the e2e-harness half of that recon — still capture how the app starts, which later phases use regardless. Have the codebase agents return the **completeness inventory** as well, on every run — every caller of what you're changing, every place the shape propagates (types, validation, serializers, fixtures), and the existing-data surface a migration would have to backfill. The ledger in Phase 3 is only as good as this list, and it's far cheaper to enumerate now than to discover mid-wave.
+- **Codebase agent(s)** — entry points, data models, sibling code paths, reusable utilities, API/UI patterns, test conventions, blast-radius surfaces relevant to the request. For a large feature, split by subsystem (one agent per area) so each returns fast. Have one of them also capture the **runnability picture**: how the app starts locally (dev command, services, env vars, seed data) and whether an e2e harness exists (framework, test command, fixtures) — Phases 3/6/7 need this to decide whether and how e2e coverage runs. Under `--no-e2e`, skip only the e2e-harness half of that recon — still capture how the app starts, which later phases use regardless. Have the codebase agents return the **completeness inventory** as well, on every run — every caller of what you're changing, every place the shape propagates (types, validation, serializers, fixtures), and the existing-data surface a migration would have to backfill. The ledger in Phase 3 is only as good as this list, and it's far cheaper to enumerate now than to discover mid-wave. Three more things come back from the codebase agents on every run:
+  - **Standards that apply.** These are the repo's own written rules. Look in CLAUDE.md / AGENTS.md / CONTRIBUTING, lessons-learned files, incident write-ups, ADRs, checklists and runbooks, and a tech-debt register. Also capture how the closest sibling module or subtree is laid out. The agent returns each rule that bears on this change, with its path. A build that repeats a mistake the repo already wrote down is the easiest defect a reviewer will ever find. A convention from another repo or an outside spec doesn't override this repo's layout.
+  - **Runtime & trust shape.** How the thing is deployed: how many instances run in steady state and during a deploy, whether there's a leader, and which processes hold long-lived connections. Also who can send it input and with what privilege: anonymous clients, users by role, webhook senders, external contributors, workers or agents running code the system didn't write. Then list every privileged action they can reach. Phase 2 asks about whatever this can't establish.
+  - **Where the contract lives.** Find the spec or PRD the build follows. If it lives outside the repo, flag it now, because Phase 3 has to commit it before planning on it. That includes a file on someone's machine, a chat or artifact link, or a ticket.
 - **Git-history agent** — how similar features were built here before, recent changes to the files in scope, prior migrations, reverted attempts, `CHANGELOG`/PR patterns. Uses `git log`, `git blame`, `git show`.
 - **Best-practices agent** — web research (if web tools are available) on current recommended patterns, library APIs, version-specific gotchas for the technologies in play. Confirm live versions rather than trusting memory.
+- **Live facts, read-only.** When the plan will rest on how an external system actually behaves, check it with a read-only query instead of assuming it. Examples: the exact claim format a CI provider's identity token sends, whether an environment, branch, workflow or secret path exists, what a managed service exposes at the pinned version, or an account limit. Use `gh api …`, a cloud CLI's `describe`/`list`, or `git ls-remote`. Never apply, deploy or write. A false premise about live infrastructure sails through every local test and fails on the first real deploy.
 - **Spike agent(s)** — throwaway code that *tests* an assumption the other three can only assert. Spawn these only when a load-bearing unknown survives the research above — and never under `--no-spikes`; see *Spikes* below.
 
 Spawn the research agents **in one turn** so they run concurrently, using the `investigate` runner(s). Research agents are read-only — on a `claude` runner prefer the `Explore` agent type, which can still run git and web (it has Bash/WebSearch/WebFetch) but has no edit tools, so a research agent structurally cannot modify code. On an external CLI runner there's no `Explore` type; the equivalent guarantee is the sandbox flag (`--sandbox read-only` for Codex), so make sure it's actually set rather than assuming the brief's "don't edit anything" will hold. Each agent returns a tight structured brief (findings + file:line anchors + open questions), not a file dump.
@@ -272,8 +281,14 @@ Be a hard, respectful interrogator: your goal is to leave *zero* load-bearing un
 - Dependencies, feature flags, rollout, worst-case failure mode.
 - Acceptance bar (what "done" means) and how it'll be verified — including which flows deserve e2e coverage and any environment constraints for running them (test accounts, sandbox credentials, external services). Skip the e2e half of this under `--no-e2e`; don't ask the owner about coverage the flag already declined.
 - What would otherwise become a follow-up: remaining call sites, existing rows, states nobody has wired up, what gets deleted. Each answer resolves to *in this run*, *out of scope*, or — only if the owner says so — *owner-deferred*; under `--no-follow-ups`, or `--auto` where there's no owner, the last isn't available (see *Completeness contract*). This is a question on every run, because a remainder nobody was asked about is one you own.
+- **Lifecycles and sequences.** For each entity the feature creates, ask about its whole life. What does each command do after each other command on the same version, such as skip then run, or run then re-run? What does cancel or close reach: just this item, or its siblings too? When do caches expire relative to what they cache? What reopens a gate after a re-run? These answers become the plan's acceptance scenarios. Unasked, they become the logic bugs reviews find last.
+- **Trust and approvals.** For each privileged action Phase 1 found, ask who may trigger it and who may not. When the feature has an approval step, ask what exactly an approval binds to (the version the approver saw, re-checked at execution) and what invalidates it. Ask which inputs come from parties the system must not trust, and what those parties must never be able to decide.
+- **Runtime shape.** Ask how many instances run, what happens during a rolling deploy, and what happens on a crash between two steps of a flow. Ask what happens when a dependency is down for fifteen minutes, and what the kill switch is and which setting wins. These answers decide whole classes of design, so ask them before the plan rather than finding out in review.
+- **Source of truth.** If the spec isn't in the repo, ask the owner to let you commit it (or the sections the build relies on) under `docs/specs/` before planning. Every later citation then points at a repo path.
 
 Ask in **one or two structured passes** (group by topic; use the question tool where it fits). Don't drip questions one at a time. Push back on vague answers — "make it fast" → "what P95 latency is acceptable?". If the user says "you have enough, just go", proceed but **log every remaining assumption explicitly** in the plan's *Open Questions / Assumptions* section.
+
+**When the owner skips questions, those answers become assumptions, and assumptions have to stay visible.** Answer the ordinary ones the way `--auto` does: from the strongest source, taking the reversible option, and noting it. But a skipped **one-way-door** question is not yours to answer just because the owner was busy. That includes trust boundaries, auth, destructive data changes, public contracts, and money. Treat it the way `--auto` does: scope it out, or build the narrowest safe default, and mark it **unratified**. Then list every unratified decision at the top of the plan and in the final report, so it can go into the PR body where a reviewer can ratify or reject it. If the owner skipped every question, say so in the plan header. Every decision in the plan then rests on your judgment, and the reviewer needs to know that before reading anything else.
 
 **Lead with what you proved.** Where a Phase 1 spike settled something, state the measured result instead of asking about it — "the export runs in 4.2s over 50k rows, so no background job" respects the owner's time and shows the question is closed. Where a spike came back inconclusive, or where it *contradicted* what the docs or the team believed, that's now one of your sharpest questions: put the evidence in front of the owner and ask how they want to proceed, since a false premise they still hold is exactly what will derail the plan.
 
@@ -292,6 +307,8 @@ Under `--auto` you play both roles. Write the questions first, *then* answer the
 
 Using the `planning` runner (default `self` — you write it inline; only delegate if the config says so), produce a **complete, robust plan** and save it to `docs/plans/<feature-slug>.md` (create the folder if missing; suffix `-YYYY-MM-DD` if a file with that slug already exists, to avoid clobbering).
 
+**Put the contract in the repo first.** Phase 1 flags the case where the spec or PRD the plan builds on lives outside the repo: a file on someone's machine, a chat or artifact link, or a ticket. In that case, save it, or the sections the build relies on, as a new file under `docs/specs/` next to the plan, unamended. Like the plan, it's a new file, not an edit to a tracked one. Phase 4's first commit adds it as-is. Then the plan cites repo paths. If the owner doesn't want it committed, quote the load-bearing sections into the plan's §2 instead. Never cite an absolute local path, or a line number in a file only you can open. If the build later changes required behavior in that spec, the change goes in a separate commit, with a one-line reason per amendment, listed for a human to approve. "Approved by owner" means a human approved it.
+
 The plan must be decomposition-ready — it's the contract every downstream agent works from. Include:
 
 ```markdown
@@ -299,32 +316,55 @@ The plan must be decomposition-ready — it's the contract every downstream agen
 | Field | Value |
 | --- | --- |
 | Date | <YYYY-MM-DD> |
-| Source | <task / PRD path / conversation> |
+| Source | <task / repo path of the spec or PRD / conversation> |
 | Config | AGENTS_CONFIG.yml (<preset or custom>) |
 | Flags | <active modifier flags, e.g. --auto --no-e2e, or "none"> |
-| Gates | <"grilled + approved by owner", or "self-resolved under --auto"> |
+| Gates | <"grilled + approved by owner", "owner skipped the grill: N unratified decisions (§8)", or "self-resolved under --auto"> |
+| Status | <planned / wave N of M landed / review / tests green — kept current as the run moves> |
 | Branch | TBD — set in Phase 4 |
 | Base SHA | TBD — set in Phase 4 |
 
-## 1. Objective & success criteria
+## 1. Objective & success criteria  (each criterion names the production path that
+   produces it — entry point → … → the new code — and the test that drives that path)
 ## 2. Context & constraints  (grounded findings from Phase 1, with file:line anchors;
-   spike verdicts with what was measured and under which versions)
+   the spec by repo-relative path; the repo standards that apply — lessons, checklists,
+   ADRs, sibling layout — each with its path; spike verdicts with what was measured
+   and under which versions; live facts checked, with the command)
 ## 3. Approach & key decisions  (alternatives considered; why this one — mark which
    decisions rest on spike evidence vs. on reasoning)
 ## 4. Work breakdown — implementation tasks
    For each task: an ID, a one-line goal, the **exact files it owns** (disjoint from
-   its wave-siblings), dependencies (which task/wave must land first), and acceptance.
+   its wave-siblings), dependencies (which task/wave must land first), acceptance as
+   checkable scenarios (given/when/then — failure states and sequences included, each
+   with how it's proven), **risk** tags (trust / data / external / concurrency / state /
+   migration / infra / tests / none — they pick each agent's build rules and which waves
+   get reviewed), and **wired by** — the production entry point that reaches this code,
+   or the task ID that wires it in. A task whose code nothing in production reaches
+   isn't a task, it's remainder.
 ## 5. Work breakdown — test tasks  (unit / integration / e2e; which impl task each covers)
    State explicitly whether e2e applies — and to which user flows — or why it doesn't
    (including "skipped via --no-e2e" when that flag is active).
    If it applies, record the run recipe from Phase 1: e2e command, how the app and its
    services start, seed data, and any credentials/environment prerequisites.
+   Include an assembled-flow test per §1 success criterion, a pass through every variant
+   of any new union / kind / message type, and the negative paths at each trust boundary.
 ## 6. Execution waves  (which tasks run in parallel; the barrier between waves)
-## 7. Blast radius & risks  (callers, sibling paths, migrations, rollback, feature flags)
+   Delivery slices: when the change will be too big to review as one diff (roughly
+   >1,500 changed lines, or several subsystems), the stack of PRs it ships as — each
+   one wired, green, and deleting what it doesn't wire.
+## 7. Invariants, runtime shape & risks
+   Invariants: the rules every path must obey (who may trigger each privileged action,
+   one writer per state, idempotency keys, what an approval binds to) and the single
+   place each one is enforced — new paths route through it, they don't re-implement it.
+   Runtime shape: instance count, rolling deploys, crash between steps, dependency
+   outage, kill switch and which setting wins.
+   Blast radius: callers, sibling paths, migrations, rollback, feature flags.
+   Cross-repo dependencies and the merge/apply order.
 ## 8. Open questions / assumptions  (questions the owner left open, assumptions you
-   are proceeding on; under --auto, the self-answered grill as a Q&A table —
-   question / answer / source / confidence — plus any one-way decision scoped out
-   for a human. Not a bin for remainder — that lives in §9)
+   are proceeding on; unratified one-way decisions first; under --auto, the
+   self-answered grill as a Q&A table — question / answer / source / confidence —
+   plus any one-way decision scoped out for a human. Not a bin for remainder — that
+   lives in §9)
 ## 9. Completeness ledger  (every run: every candidate follow-up, each marked
    *in this run* with the task ID that owns it, *out of scope* with why it's a
    different ticket, or *owner-deferred* with who decided it and where — the third
@@ -336,13 +376,20 @@ The **work breakdown is the heart of the plan**: partition the feature into task
 
 Build the ledger (§9) *before* the breakdown and let it feed the breakdown, not the other way around — a remainder you notice while writing tasks tends to get written down; a remainder you enumerate first gets a task.
 
-**Present the plan to the user and get explicit approval before writing any code.** Offer to adjust. This is the second and final hard gate — *unless `--auto` is active*, in which case self-approve and continue (see *Autonomous mode*).
+Three things in the breakdown deserve extra attention:
+
+- **Wiring is a task.** Most features have a small composition step: registering the route, the job, the handler, the plugin, or reading the config key. Give it to one task in a late wave, by name. When nobody owns it, it doesn't happen, and every module ships tested and unreachable.
+- **Respect the structure the repo already has.** Check the repo's file and function size limits and layering rules. If the repo already routes state writes through a transition table, the new entity's states go through one too. The composition root stays wiring, not a second domain layer. Plan the module boundaries now, because splitting a 2,000-line file in review costs far more.
+- **One enforcement point per invariant.** If an action needs a trust check, every path that reaches it calls the same gate. That includes the batch version, the retry, the follow-up job, and the fallback. When a task adds a new path to a guarded action, its acceptance says "goes through `<gate>`".
+
+**Present the plan to the user and get explicit approval before writing any code.** Lead with any unratified one-way decisions and how big the ledger made the job, then the approach and waves. Offer to adjust. This is the second and final hard gate — *unless `--auto` is active*, in which case self-approve and continue (see *Autonomous mode*).
 
 ### Phase 4 — Implement
 
 **Baseline first, before any agent writes.** This is the first phase that touches code, so set up a clean, diffable starting point:
 - **Branch.** If you're on the default branch (`main`/`master`) or the user hasn't named a target branch, create a feature branch from the plan slug (e.g. `implement/<feature-slug>`) and announce it. A multi-agent fan-out should never write directly to the default branch, and both the review diff and worktree isolation below assume a branch to work on.
 - **Record the base.** Capture `git rev-parse HEAD` as `<base>` and note whether the tree was already dirty (`git status --porcelain`). Fill the `Branch` and `Base SHA` rows the plan template reserved for this (a metadata-only edit to an approved plan — not a scope change; leave everything else untouched). Phase 5's review and the final report diff against exactly this ref, so pre-existing edits aren't misattributed to the build.
+- **Commit the contract first.** The first commit on the branch is docs only: the plan, plus the unamended spec if Phase 3 brought one into `docs/specs/`. Everything after it is diffable against what was agreed.
 
 For each wave in the plan, spawn one `general-purpose` sub-agent per task, **in a single turn**, using the `implementation` runner(s).
 
@@ -350,22 +397,59 @@ Give each agent a **self-contained brief**: the objective, the exact files it ow
 
 Every brief carries the **completeness clause**: finish the task's scope with no `TODO`/`FIXME`/stub/`NotImplementedError` standing in for in-scope work, and report remainder found outside the owned files back to you instead of reaching across a boundary (which collides) or leaving a marker (which is a self-deferral). The "touch nothing else" rule *guarantees* agents will run into remainder they aren't allowed to fix — the clause is what keeps that from quietly becoming a `TODO`. What comes back, you schedule into the next wave, or into the ledger if it's genuinely out of scope (*Completeness contract*).
 
+Every brief also carries the **use-what-exists clause**, because parallel agents that can't see each other's work drift toward building their own mechanisms:
+
+- **Values.** Read values from the config module, and don't hard-code a value config already owns. Add new settings there, and read every key you add.
+- **State.** Write state through the existing transition table or state machine, never with a raw update.
+- **Guards.** Route guarded actions through the plan's named gate (§7) rather than re-checking inline.
+- **Shared code.** Import shared types and helpers from where they live rather than redeclaring them.
+- **Production code.** No function in production code returns a placeholder (`''`, `[]`, an always-throwing stub).
+- **The plan's invariants.** No network call inside a database transaction. Every retry loop gets a cap.
+
+The agent reports back any place where the existing mechanism didn't fit, rather than quietly working around it.
+
+Three more things go in every brief, because a coding agent can only prevent what it was shown:
+
+- **Invariants and runtime shape.** Paste the plan's §7 text, not a summary: the rules every path must obey and where each is enforced, the instance count, and what a crash between steps must leave behind.
+- **Build rules.** Give the absolute path of `references/build-rules.md` and the sections to read: *Always*, plus one per risk tag the plan put on the task (`trust`, `data`, `external`, `concurrency`, `state`, `migration`, `infra`, `tests`). They're the review rubric turned into rules for writing, so most of what Phase 5 would flag never gets written.
+- **Self-check before reporting.** This is the closing section of build-rules.md:
+  1. Re-read the diff of the owned files.
+  2. Walk every flow the task touches, end to end, including failure states and command sequences.
+  3. Run `scripts/quality_gates.py hygiene` and `wiring` with `--worktree --paths <owned files>`, and fix the real hits.
+  4. Run the narrowest typecheck, lint and existing tests that cover the files.
+  5. Give evidence for each acceptance item: file:line, a test, or a command result.
+  6. Name what couldn't be verified.
+
+  The agent's output carries all of it. A summary without evidence means the task isn't done.
+
 - **Validate the wave before spawning it.** Cross-check the file-ownership lists of the tasks you're about to launch together: if any two name the same file, it isn't a valid wave — re-partition or split it before spawning. This 30-second check is the cheapest place to catch a collision.
-- **Respect wave barriers.** Wait for all agents in a wave to finish before starting the next wave, since later waves depend on earlier ones. Within a wave there are no dependencies, so they run fully concurrently.
+- **Respect wave barriers.** Wait for all agents in a wave to finish before starting the next wave, since later waves depend on earlier ones. Within a wave there are no dependencies, so they run fully concurrently. Tell agents to run long commands in the foreground. If one says it's waiting on its own background command, message it to finish that and report. Some harnesses treat an agent that has ended its turn as done, and ending your own turn with no agent running can cut your run short.
+- **Verify every task, and send back what isn't right.** A summary is what the agent meant to do, and the diff is what it did. You're the last line before the wave is committed and later waves build on it. Do the following for each task:
+  1. Read its diff, not its summary.
+  2. Check each acceptance scenario against the code and the agent's evidence.
+  3. Check its brief clauses: wiring, config, the state machine and gates, the §7 invariants, and the build rules for its tags.
+  4. Run `quality_gates.py hygiene` and `wiring --worktree --paths <owned files>` yourself, because the agent's clean self-check is a claim, not evidence.
+  5. Send anything wrong back to the same agent (on Claude Code, `SendMessage`, so it keeps its context). The request gives what's wrong with file:line, what it should do instead, and what evidence to return. Never quietly fix it yourself while the agent reports success.
+  6. Re-verify the fix. After two fix rounds, do it yourself if it's small, or surface it as a plan problem.
+
+  Commit the wave only when every task passes. Record each task's outcome for the report: passed first time, passed after N rounds, or escalated.
+- **Review risky waves before anything builds on them.** When a wave holds a task tagged `trust`, `data`, `external`, `concurrency`, `state` or `migration`, or adds more than about 500 lines, spawn a read-only reviewer on the `code_review` runner. Scope it to that wave's diff, and give it the tasks' acceptance and §7. Fix its must-fix findings through the owning task's agent before the next wave starts. Phase 5 still reviews the whole diff. The wave review exists because a pattern that's wrong in wave 1 gets copied by waves 2–4, and fixing it in Phase 5 means rewriting all four.
+- **No off-plan waves.** Work the plan doesn't contain is a plan change, however obviously needed. That includes a "trust pass", a "hardening pass", a cleanup or a refactor. Write it into the plan first, with tasks, owned files, acceptance and risk tags. Get the owner's yes, or under `--auto` record it in §8. Only then build it. A late unplanned commit of thousands of lines is what makes a change unreviewable, and it silently rewrites earlier waves. A change you make to an approved plan while the owner is away stays marked as yours. Update the plan's Gates row to show it. A one-way door among those changes, such as a new endpoint reachable without login or a weakened required behavior, gets the unratified treatment from Phase 2.
 - **distribute vs race.** Under `distribute`, each task goes to one runner (round-robin or by suitability — give the cheaper runner the mechanical tasks, the stronger one the subtle tasks). Under `race`, send the same task to every runner and pick the best result yourself.
 - **Avoiding collisions.** The plan already partitions files by task, so same-wave agents shouldn't collide *on source files*. Two hazards remain:
   - **Shared tooling side effects.** File-disjointness isn't enough when a wave mixes runner types. An external CLI runner (`codex`/`shell`) and an in-tree `claude` sub-agent occupy the **same working tree** at once, and the CLI may rewrite shared surfaces the file partition never mentioned — formatters, `package-lock`/lockfiles, the git index, generated code. Whenever an external CLI runner shares a wave with any other runner, give it its own checkout (worktree isolation) or serialize it after the in-tree agents. This is also why `cross_host: true` belongs on read-only phases: on a writing phase it guarantees exactly this collision.
   - **Unavoidable shared files.** If two tasks must both edit a central file (e.g. a registry), either (a) sequence them into separate waves, or (b) run the colliding agents with `isolation: "worktree"`. Prefer clean partitioning — reach for worktrees only when partitioning is genuinely impossible.
   - **Merging worktrees.** Isolated agents commit on their own branch; afterward **you** merge them into the working branch one at a time (`git merge` per worktree) and resolve any conflicts yourself. Because merging is the step most likely to strand or clobber work, treat it as a last resort behind re-partitioning.
-- **Checkpoint after each wave.** Do a quick sanity pass (build/typecheck if cheap), then commit the wave (`wave N: <summary>`). The plan plus these commits are your resume points: if a later wave, the review, or a test run fails, you pick up from the last green wave instead of restarting the build — never discard completed work on a downstream failure.
+- **Checkpoint after each wave.** Run a quick sanity pass, then commit the wave as `wave N: <summary>`. The sanity pass covers build and typecheck if cheap, plus a check that each new export from this wave either has a production caller or is named in a later task's "wired by". Write the commit message from `git diff --stat`, not from the plan: say what the commit actually contains, and keep unrelated concerns out of it. The plan plus these commits are your resume points. If a later wave, the review, or a test run fails, you pick up from the last green wave instead of restarting the build. Never discard completed work because something downstream failed. Update the plan's `Status` row as each wave lands.
+- **Close with a wiring audit.** Before Phase 5, run `python3 scripts/quality_gates.py wiring --base <base>` (`scripts/` sits next to this file; Python 3.9+, standard library only.). It lists every new export that nothing in production reaches, because only its own file, re-export barrels or tests use it. It also lists config keys that are parsed and never read. Confirm each hit, and trace the routes, job and message types, and metrics it can't see, up to an entry point. Then take each §1 success criterion and find the production code that produces it. Anything unwired, any production stub, and any config key with no reader gets fixed in a sweep wave now, or goes to the owner as a plan change. It never ships as "available". This takes minutes, and it catches the defect that otherwise survives every later phase. Unit tests pass on unwired code, and the reviewer sees well-tested modules.
 
 See *Spawning runners* below for the exact mechanics of Claude vs shell runners.
 
 ### Phase 5 — Code review
 
-Spawn a `general-purpose` agent on the `code_review` runner to review the diff produced in Phase 4 — `git diff <base>...HEAD` using the `<base>` recorded at the start of Phase 4 (plus any still-uncommitted changes) — returning structured findings (category, severity, file, line, suggestion).
+Spawn a `general-purpose` agent on the `code_review` runner to review the diff produced in Phase 4 — `git diff <base>...HEAD` using the `<base>` recorded at the start of Phase 4 (plus any still-uncommitted changes) — returning structured findings (severity, file:line, mechanism, failure scenario, fix).
 
-**Tests don't exist yet at this point** — they're written in Phase 6, right after. So the diff under review is production code *without* its tests by design. **Explicitly brief the review agent not to flag missing/absent test coverage as a finding** — that's pipeline sequencing, not a defect, and left unsaid every reviewer will raise it as a spurious must-fix. (Test *quality* is reviewed implicitly when Phase 6's tests land; the closed loop is Phase 7 running them.)
+**Tests don't exist yet at this point** — they're written in Phase 6, right after. So the diff under review is production code *without* its tests by design. **Explicitly brief the review agent not to flag missing/absent test coverage as a finding** — that's pipeline sequencing, not a defect, and left unsaid every reviewer will raise it as a spurious must-fix. (Test *quality* is checked in Phase 6, where each agent proves its tests can fail; the closed loop is Phase 7 running them.)
 
 **Which rubric:** decide *before* spawning the agent by checking your own available-skills list (shown at the top of your context) — skill availability is session-scoped, not repo-scoped, so you can see it directly rather than trusting the sub-agent to.
 - If a `code-review` skill is listed **and** the user/config hasn't asked for strict standalone behavior → instruct the agent to load and follow it.
@@ -375,15 +459,63 @@ Spawn a `general-purpose` agent on the `code_review` runner to review the diff p
 
 Either way, **require the agent to state in its report which rubric it actually used**, so you can confirm the intended path was taken rather than infer it.
 
-> **Built-in review rubric (fallback):** walk every changed file and flag, with file:line evidence — **bugs** (logic errors, unhandled edge cases, error-handling gaps); **security** (tenant isolation, authorization, atomicity/TOCTOU, retry safety, multi-step flow completeness, orphaned state, secrets/input validation); **performance** (in-memory aggregation, sequential fan-out, duplicate scans); **consistency** (enum/validation drift, schema↔code column drift, duplicated business rules); **blast radius** (callers, sibling paths, retries, stale state, downstream systems); and **completeness** (call sites left on the old path, partial propagation of a shape change, reachable states with no handling, orphaned dead code, new `TODO`/`FIXME`/stub markers). Report problems only — no "looks good" findings — each with category, severity, file, line, and a concrete fix. Do **not** flag absent tests (Phase 6 adds them). Read-only: never edit code during review.
+> **Built-in review rubric (fallback):** read `references/review-rubric.md` and paste it into the brief whole. It's self-contained so an external CLI can follow it. It covers wiring and claims, security and trust boundaries, reliability under the real deployment shape, data and transactions, consistency and config, structure, blast radius, and completeness. Each finding comes with a severity, file:line, a concrete failure scenario and a fix. Don't flag absent tests (Phase 6 adds them). Read-only.
 
-Before spawning the reviewer, run the cheap mechanical pre-check yourself: grep the diff for added `TODO|FIXME|XXX|HACK` and placeholder throws. Whichever rubric the reviewer uses, brief it on the completeness dimension explicitly (unmigrated call sites, partial propagation, reachable-but-unhandled states, orphaned dead code, deferral markers) — a `code-review` skill won't know this run's ledger.
+Before spawning the reviewer, run the mechanical pre-checks yourself: `python3 scripts/quality_gates.py hygiene --base <base>` and `wiring --base <base>`. Hygiene flags these patterns in the added lines:
 
-Triage the findings yourself. Fold **must-fix** items (bugs, security, correctness) into a fix list for Phase 8 — and completeness findings are correctness: a caller left on the old path is a bug, not a nice-to-have. The one carve-out is remainder the ledger already records as *owner-deferred*; that's fine on a default run and a defect under `--no-follow-ups` (*Completeness contract*). Note genuine nice-to-haves for the user. Don't auto-apply — you decide what's in scope, then fix via agents in Phase 8.
+- deferral markers and placeholder throws;
+- laptop paths or chat links cited as specs;
+- focused or skipped tests, and silent test guards;
+- fail-open secret checks and non-constant-time compares;
+- floating promises and unguarded async intervals;
+- unordered `LIMIT 1`;
+- env reads outside config, and literals that duplicate config defaults;
+- commits whose message doesn't fit their size.
+
+Fix what's yours to fix, and hand the rest to the reviewer as leads.
+
+Whichever rubric the reviewer uses, **brief it on this run's contract**, because a generic review can't know it:
+
+- §1's success criteria, each with the production path that should produce it;
+- §7's invariants, each with the place it's enforced;
+- the standards Phase 1 found, with their paths;
+- the claims the ledger marks done;
+- the completeness dimension: unmigrated call sites, partial propagation, reachable but unhandled states, orphaned dead code, deferral markers, and unwired code.
+
+A reviewer that knows "every path into `<action>` must go through `<gate>`" checks the new paths for it. One that doesn't just reads diffs.
+
+**Size the review to the diff.** On a large build, roughly over 1,500 changed lines or across several subsystems, run the review as parallel read-only passes rather than one agent. It needs two kinds:
+
+- **Dimension passes.** Architecture and spec adherence; security and trust; data, concurrency and reliability; and operations when infra changed.
+- **Correctness passes, one per subsystem or user flow.** Each walks the feature's logic end to end. Cross-cutting checklists miss that kind of bug: a cancel that reaches too far, a cache that serves expired values, a gate that never reopens.
+
+The `code-review` skill describes this split. Then **re-verify every blocker and must-fix yourself** against the code before it enters the fix list. Sub-agent findings come back sounding equally confident whether they're right or wrong, and a fix round spent on a false finding is a round not spent on a real one.
+
+Triage the findings yourself. Fold **must-fix** items (bugs, security, correctness) into a fix list for Phase 8 — and completeness findings are correctness: a caller left on the old path is a bug, not a nice-to-have, and so is unwired code. The one carve-out is remainder the ledger already records as *owner-deferred*; that's fine on a default run and a defect under `--no-follow-ups` (*Completeness contract*). Note genuine nice-to-haves for the user. Don't auto-apply — you decide what's in scope, then fix via agents in Phase 8.
 
 ### Phase 6 — Tests creation
 
 Same mechanics as Phase 4, using the `tests_creation` runner(s) and the plan's **test work breakdown**. Partition test tasks by the module/file under test so agents don't collide. Each agent extends the project's existing test setup and fixtures (from Phase 1 findings) rather than inventing a parallel harness, and covers the acceptance criteria plus negative paths for its assigned area.
+
+**Every test has to be able to fail, and every brief has to say so.** A green suite is evidence only to the extent its tests can go red. The patterns that produce tests that can't fail are well known, so name them in the brief:
+
+- asserting what a constraint already guarantees;
+- checking membership where legality matters (state is in the known set, rather than the transition being legal);
+- setup that already sets the asserted field;
+- a loop over a set that may be empty;
+- a fake that matches SQL strings instead of a real database;
+- a "two-process" test that runs in one process;
+- a graceful close standing in for a crash;
+- sleep-then-assert-nothing;
+- a helper that silently `return`s when its database or env is missing. That one should skip loudly, and a global setup should fail under CI.
+
+Each agent proves its tests can fail. For every behavior a test covers, break the behavior in a scratch copy and watch the test go red. For tests the plan ties to a §1 criterion or a §7 invariant, this check is mandatory. Beyond acceptance and the negative paths, the briefs cover:
+
+- **an assembled-flow test per success criterion**, driven from the production entry point rather than by calling the module directly;
+- **every variant** of a new union, kind or message type passing through the code that handles it;
+- **the negative paths at each trust boundary**: bad signature, replay, oversize, wrong owner, revoked or expired identity, and an approval for a stale version;
+- **the runtime shape the plan names**: a real second process, a real kill, an injected dependency failure;
+- **isolation**: tests touch only the rows they created, and the suite passes run twice in a row.
 
 **Include e2e coverage whenever it's applicable — not as a bonus, but as part of "tested".** (Under `--no-e2e`, none of this section's e2e work happens — no e2e tests, no harness setup; rely on the plan's *skipped by flag* record instead of an applicability judgment.) Unit and integration tests validate pieces in isolation; a class of bugs only surfaces in the assembled system — broken wiring between layers, auth/session behavior, migrations meeting real data, a UI flow that dies on the second step. For those, an e2e test is often the *only* automated way to catch the bug before a user does. E2e applies when the feature has a user-visible flow or crosses a process boundary (UI→API→DB, service→service, CLI→filesystem) and the app can be run locally per Phase 1's runnability findings. It doesn't apply to pure library/helper changes fully exercised by unit tests — in that case the plan says so explicitly and moves on; "not applicable" is a recorded decision, never a silent omission.
 
@@ -392,6 +524,16 @@ When it applies: extend the project's existing e2e harness (Playwright, Cypress,
 ### Phase 7 — Tests running
 
 Spawn **one background agent** on the `tests_running` runner to run the suite (the project's test command — discover it in Phase 1) and report back: pass/fail counts, the failing tests, and the relevant output. Background is ideal here — you'll be notified when it finishes. If the command is unknown, ask the user once for it (and note it in the plan for next time).
+
+**"The suite" means everything CI runs**, read from the CI config: typecheck, lint, format check, migration down-and-up, and builds, not just the test runner. A run that's green locally and red in CI on lint isn't green.
+
+**Check that green is real.** Have the runner write a machine-readable report: JUnit XML (`vitest --reporter=junit --outputFile=…`, `jest-junit`, `pytest --junitxml=…`, `go-junit-report`) or Jest/Vitest JSON. Then run:
+
+```sh
+python3 scripts/quality_gates.py suite <report> --baseline <base-report> --require-env <VARS> --scan-tests <test-dir>
+```
+
+It flags failures, every skip, suites whose tests all finished in about 0 ms, and a test count that dropped against the base. It also flags required env vars that were unset, and test helpers that silently `return` when a service is missing. A database layer that "passed" without a database didn't run, and it counts as a failure of the run, not a pass.
 
 **When the plan includes e2e, the agent runs the e2e suite too — entirely by itself.** "It needs a running app" is a setup step for the agent, not a reason to hand the run back to the human. The agent owns the whole lifecycle, following the run recipe recorded in the plan:
 1. **Prepare** — install what's missing (e.g. `npx playwright install`), provision local services (db, queue), seed fixture data.
@@ -403,9 +545,20 @@ Only when a step is *genuinely* impossible to automate — real payment gateways
 
 ### Phase 8 — Tests fixes (conditional)
 
-If Phase 5 surfaced must-fix findings, or Phase 7 reported failures, spawn fix agents exactly like Phase 4 — independent, file-disjoint tasks on the `tests_fixes` runner, each scoped to one failure cluster or finding. Then **re-run Phase 7**. Loop until green or until you hit a wall you can't resolve without the user — at which point stop and report the remaining failures with evidence, rather than looping forever. Cap at a sensible number of rounds (say 3) before checking in.
+If Phase 5 surfaced must-fix findings, or Phase 7 reported failures, spawn fix agents exactly like Phase 4 — independent, file-disjoint tasks on the `tests_fixes` runner, each scoped to one failure cluster or finding. Their briefs carry the same build rules and self-check as Phase 4's, since fix code is new code. Then **re-run Phase 7**. Loop until green or until you hit a wall you can't resolve without the user — at which point stop and report the remaining failures with evidence, rather than looping forever. Cap at a sensible number of rounds (say 3) before checking in.
 
 For a failing **e2e** test, have the runner re-run it once before dispatching a fix agent — e2e is the flakiest layer, and the fix differs by diagnosis: a consistent failure means the product code (or the test's assumptions) is wrong; a pass-on-retry means the *test* is at fault, and the fix agent should repair the flake properly (readiness waits, deterministic seeds — not sleeps or retries baked into the test).
+
+#### Fixing review findings — this phase or a whole run
+
+The same discipline applies when Phase 5 hands you must-fixes, and when the whole run is a response to an outside review. For example: "here's the review on my PR, fix it all." Fix rounds fail in their own predictable ways. The fix opens a new hole next to the one it closed. A regression test was never really red. A partial fix gets reported as fixed. The anti-pattern the review removed comes back on a new entity. The docs describe the head before the fixes. So:
+
+- **Map every finding.** In the plan (§4), give each finding a row with its ID **and** title, the task that fixes it, and the regression test that proves it. Use ID plus title everywhere. "Findings 1–N" by number alone can't be checked by anyone reading later. When the review comes back for another round, it will score against this map.
+- **Red for the bug, at the pre-fix commit.** Before fixing, run each regression test against the code the review read, and confirm it fails *on its assertion*, describing the bug. A test that fails only because it imports a module or calls a route the fix adds proves nothing. When the fix must change the API, write the test against behavior that exists on both sides of the fix, such as the public endpoint or the observable row, and record the red output.
+- **Re-trace the invariant across every path, including the ones the fix adds.** If the finding was "path A reaches the action without the gate", list every path into that action after the fix. A new retry, follow-up job or fallback added by the fix is the classic place the same hole reopens. If the fix validates something an untrusted party produced, store the validated copy where that party can't write. Pin its hash, and re-verify it when it's loaded.
+- **Fix the class, not the instance.** A finding about one site usually has siblings: other lifecycles with the same raw state writes, other handlers with the same missing ownership check, other callers with the same optional config. Grep for the pattern and fix them all. The review's structural fixes also apply to anything new the round adds. Splitting a god file into files that hold the same 400-line functions only moves the problem. Break the functions up.
+- **Partial is partial.** Report each finding as *fixed*, *partial* (say what remains), or *not fixed* (say why), with the commit and the test. Never round partial up to fixed. The next review will check, and a false "fixed" costs more trust than an honest "partial".
+- **Refresh every claim at the final head.** That includes the PR description, generated reports, test counts, the plan's `Status` and ledger, and any commit map. Re-derive each one from the final run and the code. Don't patch the old text. A fix round that leaves the PR body describing the previous head undermines everything the round fixed.
 
 ## Spawning runners
 
@@ -429,7 +582,7 @@ For every external CLI runner, use `run_in_background: true` on long runs and co
 A sub-agent can't pause to ask you questions — its first (and only) instruction has to carry everything it needs. Brief quality is the single biggest lever on multi-agent results: vague briefs cause overlapping work and rework. Every brief you send — investigation, implementation, tests, fixes — nails four things:
 
 - **Objective** — the one outcome this agent owns, in a sentence.
-- **Output format** — exactly what to return, and keep it uniform across siblings so you can consume them together (e.g. "a findings brief with file:line anchors"; "a summary of files changed + any deviations"; "review findings as category / severity / file / line / fix").
+- **Output format** — exactly what to return, and keep it uniform across siblings so you can consume them together (e.g. "a findings brief with file:line anchors"; "a summary of files changed + any deviations"; "review findings as severity / file:line / mechanism / scenario / fix").
 - **Tools & sources** — where to look and what to use (specific files/dirs, `git log`, web for library X), so the agent doesn't rediscover the map from scratch.
 - **Boundaries** — the exact files this agent owns, plus a firm "touch nothing else — that's another agent's job." Explicit boundaries are what stop parallel agents from colliding or duplicating each other's work.
 
@@ -454,17 +607,30 @@ Resolve a phase in three steps: look up its `use:` role(s) in `models:`; take th
 
 ## Reporting back
 
+Write the report **last, from evidence at the final head**: the final test run's counts, the wiring audit's results, and `git log <base>..HEAD`. Don't build it from what earlier waves said they'd do. The same applies to anything the run writes for other readers, such as a PR body or a generated summary.
+
 When the loop completes, give the user a tight wrap-up:
 - **Plan:** `docs/plans/<slug>.md`.
-- **Gates:** whether the grill and plan approval went through the owner, or were self-resolved under `--auto`. If autonomous, lead with this and link the plan's §8 Q&A table, plus anything you scoped out as a one-way decision — an absent owner's first question is "what did you decide for me?", and it should be answered before they have to ask.
-- **Implemented:** the waves/tasks that ran and which runner did each.
-- **Review verdict:** counts by severity + must-fixes addressed.
-- **Tests:** final pass/fail with the command used, split by layer (unit/integration vs e2e). If e2e was skipped — as not applicable or via `--no-e2e` — say so and why; if any e2e step couldn't be automated, include the manual runbook for the remainder.
+- **Gates:** whether the grill and plan approval went through the owner, or were self-resolved under `--auto`. If autonomous, lead with this and link the plan's §8 Q&A table, plus anything you scoped out as a one-way decision — an absent owner's first question is "what did you decide for me?", and it should be answered before they have to ask. Do the same when the owner skipped questions in an interactive run: list the **unratified** decisions first, and any amendments the build made to the spec, so they can be copied into the PR body for a reviewer to ratify.
+- **Implemented:** the waves/tasks that ran and which runner did each, with each task's verification outcome (passed first time / after N fix rounds / escalated) and what each wave review caught.
+- **Wired:** the wiring audit's result. Every success criterion with the production path that produces it, and confirmation that every new export has a production caller. If anything is still unwired, name it here as a defect. Never call it "available".
+- **Review verdict:** counts by severity + must-fixes addressed. For a review-response run, the per-finding status (*fixed* / *partial* / *not fixed*, by ID and title, with commit and test).
+- **Tests:** final pass/fail with the command used, split by layer (unit/integration vs e2e), plus the skipped count for each layer and the static gates CI runs. If e2e was skipped — as not applicable or via `--no-e2e` — say so and why; if any e2e step couldn't be automated, include the manual runbook for the remainder.
+- **Cross-repo order:** if the build depends on unmerged or unpushed work in another repo, list each dependency and its state, and give the merge/apply order.
 - **Open items:** the completeness ledger's outcome — swept in, ruled out of scope (and why), owner-deferred (and by whom, pointing at the grill answer). "Deferred by the run" is not a category: a remainder with no owner decision behind it is a defect to fix before reporting, not a bullet to list. Then the assumptions logged (calling out those left unverified because `--no-spikes` disabled the experiment) and any remaining failures you couldn't resolve. Under `--no-follow-ups` the owner-deferred list is empty by construction; anything still open needs a reason, since the flag's whole promise is that there isn't one.
 - **Next step:** e.g. "review `docs/plans/<slug>.md`", or "run `/code-review` on the branch before pushing".
 
 ## Adapting to reality
 
 These eight phases are the backbone, not a straitjacket. A tiny change may collapse investigation to a single agent and the grill to two questions. A research-heavy feature may loop investigation → grill twice before planning. If the user says "skip tests" or "no need to review", honor it and note it. The value is in the *orchestration discipline* — grounded investigation, resolved unknowns, a durable plan, collision-free parallel execution, and a closed test loop — not in rigidly performing all eight steps regardless of the task.
+
+A run whose input is **a review to address** uses the same phases, compressed:
+
+1. **Phase 1** reads the review and the code at its head, and checks each finding is real. A finding you can't reproduce goes back to the reviewer as a question. Don't quietly skip it.
+2. **Phase 2** asks only what the review left to the owner.
+3. **Phase 3's plan** is the finding map.
+4. **Phases 4–8** follow *Fixing review findings*.
+
+A build that will be very large is still one plan. It doesn't have to be one PR. If §6 lays out delivery slices, deliver them as a stack. Each slice is wired and green on its own, and deletes what it doesn't wire. A reviewer can read a stack of 2,000-line PRs. Nobody can read one PR of tens of thousands of lines whose late commits rewrote its early ones.
 
 The one place to hold the line is the pair of human gates, because they're the only part of that discipline you can't restore later. Scaling the grill *down* to match a small change is right — one question instead of twelve. Dropping it to zero is a different move, and it's the one that quietly turns a delivery into a guess. If nobody is there to answer, that's what `--auto` is for, and even then the questions still get written down.

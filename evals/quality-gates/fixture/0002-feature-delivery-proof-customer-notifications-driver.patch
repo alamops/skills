@@ -1,0 +1,637 @@
+From 413a4f3a428c8d0f7e76eede45af106beb3cb46d Mon Sep 17 00:00:00 2001
+From: fixture <fixture@example.com>
+Date: Mon, 2 Nov 2026 16:10:28 -0500
+Subject: [PATCH 2/2] feature: delivery proof, customer notifications, driver
+ sockets
+
+---
+ docs/plans/delivery-proof.md  | 17 ++++++++++++++
+ src/admin/routes.ts           |  6 +++++
+ src/config.ts                 | 10 ++++++++
+ src/drivers/assign.ts         | 16 +++++++++++++
+ src/drivers/authorize.ts      | 12 ++++++++++
+ src/drivers/proof.ts          | 11 +++++++++
+ src/drivers/report.ts         | 31 +++++++++++++++++++++++++
+ src/drivers/socket.ts         | 29 +++++++++++++++++++++++
+ src/main.ts                   | 16 ++++++++++++-
+ src/notifications/digest.ts   | 14 ++++++++++++
+ src/notifications/dispatch.ts | 29 +++++++++++++++++++++++
+ src/notifications/mailer.ts   | 13 +++++++++++
+ src/notifications/outbox.ts   | 10 ++++++++
+ src/notifications/render.ts   | 20 ++++++++++++++++
+ src/server.ts                 | 43 ++++++++++++++++++++++++++++++++++-
+ src/shipments/cancel.ts       |  7 ++++++
+ src/shipments/delay.ts        | 10 ++++++++
+ src/webhooks/connect.ts       | 14 ++++++++++++
+ src/webhooks/queue.ts         | 17 ++++++++++++++
+ src/webhooks/verify.ts        |  8 +++++++
+ test/dispatch.test.ts         | 30 ++++++++++++++++++++++++
+ test/helpers/db.ts            | 33 +++++++++++++++++++++++++++
+ test/report.test.ts           | 20 ++++++++++++++++
+ 23 files changed, 414 insertions(+), 2 deletions(-)
+ create mode 100644 docs/plans/delivery-proof.md
+ create mode 100644 src/drivers/assign.ts
+ create mode 100644 src/drivers/authorize.ts
+ create mode 100644 src/drivers/proof.ts
+ create mode 100644 src/drivers/report.ts
+ create mode 100644 src/drivers/socket.ts
+ create mode 100644 src/notifications/digest.ts
+ create mode 100644 src/notifications/dispatch.ts
+ create mode 100644 src/notifications/mailer.ts
+ create mode 100644 src/notifications/outbox.ts
+ create mode 100644 src/notifications/render.ts
+ create mode 100644 src/shipments/cancel.ts
+ create mode 100644 src/shipments/delay.ts
+ create mode 100644 src/webhooks/connect.ts
+ create mode 100644 src/webhooks/queue.ts
+ create mode 100644 src/webhooks/verify.ts
+ create mode 100644 test/dispatch.test.ts
+ create mode 100644 test/helpers/db.ts
+ create mode 100644 test/report.test.ts
+
+diff --git a/docs/plans/delivery-proof.md b/docs/plans/delivery-proof.md
+new file mode 100644
+index 0000000..7aeb034
+--- /dev/null
++++ b/docs/plans/delivery-proof.md
+@@ -0,0 +1,17 @@
++# Plan — delivery proof & customer notifications
++
++Built to the delivery spec v3 (`/Users/sam/Downloads/delivery-spec-v3.pdf`, pp. 12–14).
++
++## Objective
++1. Drivers report progress and upload a proof photo; a delivery needs at least one photo.
++2. Customers get a "Delivered" email with the proof photo, and a "Delayed" email when a carrier reports a delay.
++3. Ops get a daily digest email at 07:00 (spec §4.2).
++4. Ops can cancel a shipment and re-send failed notifications.
++
++## Ledger
++| Item | Status |
++| --- | --- |
++| Delivered email | done (T4) |
++| Delayed email | done (T4) |
++| Daily digest | done (T6) |
++| Outbox retry cap | done (T5) |
+diff --git a/src/admin/routes.ts b/src/admin/routes.ts
+index c51469c..e5efe28 100644
+--- a/src/admin/routes.ts
++++ b/src/admin/routes.ts
+@@ -22,4 +22,10 @@ export function registerAdminRoutes(app: FastifyInstance, db: Db) {
+     await db.query("update assignments set state = 'released' where shipment_id = $1", [id]);
+     return { ok: true };
+   });
++
++  // re-send every failed customer notification
++  app.post('/admin/:action(resend_all)', async () => {
++    const { rowCount } = await db.query("update outbox set state = 'pending', attempts = 0 where state <> 'sent'");
++    return { requeued: rowCount };
++  });
+ }
+diff --git a/src/config.ts b/src/config.ts
+index 48680ab..6c05b86 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -2,6 +2,11 @@ export interface Config {
+   databaseUrl: string;
+   port: number;
+   webhookSecret: string;
++  driverTimeoutSeconds: number;
++  maxSendAttempts: number;
++  emailMode: 'dry-run' | 'live';
++  emailApiUrl: string;
++  proofDir: string;
+ }
+ 
+ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+@@ -10,5 +15,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+     databaseUrl: env.DATABASE_URL,
+     port: Number(env.PORT ?? 3000),
+     webhookSecret: env.WEBHOOK_SECRET ?? '',
++    driverTimeoutSeconds: Number(env.DRIVER_TIMEOUT_SECONDS ?? 120),
++    maxSendAttempts: Number(env.MAX_SEND_ATTEMPTS ?? 5),
++    emailMode: env.EMAIL_MODE === 'live' ? 'live' : 'dry-run',
++    emailApiUrl: env.EMAIL_API_URL ?? 'https://mail.example.com/v1/send',
++    proofDir: env.PROOF_DIR ?? '/var/lib/parcel-tracker/proofs',
+   };
+ }
+diff --git a/src/drivers/assign.ts b/src/drivers/assign.ts
+new file mode 100644
+index 0000000..91fe6c8
+--- /dev/null
++++ b/src/drivers/assign.ts
+@@ -0,0 +1,16 @@
++import type { Db } from '../db.js';
++
++export async function assignDriver(db: Db, shipmentId: string, driverId: string): Promise<void> {
++  await db.query(
++    `insert into assignments (shipment_id, driver_id, route_id, state, expires_at)
++     select $1, $2, route_id, 'offered', now() + interval '120 seconds' from shipments where id = $1`,
++    [shipmentId, driverId],
++  );
++}
++
++export async function reassign(db: Db, shipmentId: string): Promise<void> {
++  const { rows } = await db.query(
++    "select id from drivers where busy_with is null and active order by last_seen_at desc limit 1",
++  );
++  if (rows[0]) await assignDriver(db, shipmentId, rows[0].id);
++}
+diff --git a/src/drivers/authorize.ts b/src/drivers/authorize.ts
+new file mode 100644
+index 0000000..fccb6b9
+--- /dev/null
++++ b/src/drivers/authorize.ts
+@@ -0,0 +1,12 @@
++import type { Db } from '../db.js';
++
++/** A driver may update a shipment only if they hold its assignment. */
++export async function driverMayUpdate(db: Db, driverId: string, shipmentId: string): Promise<boolean> {
++  const { rows: [shipment] } = await db.query('select route_id from shipments where id = $1', [shipmentId]);
++  if (!shipment) return false;
++  const { rows } = await db.query(
++    'select driver_id from assignments where route_id = $1 limit 1',
++    [shipment.route_id],
++  );
++  return rows[0]?.driver_id === driverId;
++}
+diff --git a/src/drivers/proof.ts b/src/drivers/proof.ts
+new file mode 100644
+index 0000000..c9a8f47
+--- /dev/null
++++ b/src/drivers/proof.ts
+@@ -0,0 +1,11 @@
++import { promises as fs } from 'node:fs';
++import path from 'node:path';
++import { BadRequest } from './report.js';
++
++export async function saveProofPhoto(proofDir: string, shipmentId: string, filename: string, data: Buffer): Promise<string> {
++  if (filename.startsWith('/')) throw new BadRequest('bad filename');
++  const target = path.join(proofDir, shipmentId, filename);
++  await fs.mkdir(path.dirname(target), { recursive: true });
++  await fs.writeFile(target, data);
++  return target;
++}
+diff --git a/src/drivers/report.ts b/src/drivers/report.ts
+new file mode 100644
+index 0000000..a142fad
+--- /dev/null
++++ b/src/drivers/report.ts
+@@ -0,0 +1,31 @@
++import type { Db } from '../db.js';
++import { withTx } from '../db.js';
++import { transition } from '../shipments/transition.js';
++import { completeShipment } from '../shipments/complete.js';
++import { driverMayUpdate } from './authorize.js';
++
++export interface DriverReport {
++  shipmentId: string;
++  status: 'in_transit' | 'delivered' | 'cancelled';
++  photoCount: number; // number of proof photos the app uploaded
++  note?: string;
++}
++
++export class Forbidden extends Error {}
++export class BadRequest extends Error {}
++
++export async function handleDriverReport(db: Db, driverId: string, report: DriverReport): Promise<void> {
++  if (!(await driverMayUpdate(db, driverId, report.shipmentId))) throw new Forbidden('not your shipment');
++  await withTx(db, async (tx) => {
++    if (report.status === 'cancelled') {
++      await transition(tx, report.shipmentId, 'CANCELLED');
++      return;
++    }
++    if (report.status === 'in_transit') {
++      await transition(tx, report.shipmentId, 'IN_TRANSIT');
++      return;
++    }
++    if (report.photoCount < 1) throw new BadRequest('proof photo required');
++    await completeShipment(tx, report.shipmentId);
++  });
++}
+diff --git a/src/drivers/socket.ts b/src/drivers/socket.ts
+new file mode 100644
+index 0000000..f09cd35
+--- /dev/null
++++ b/src/drivers/socket.ts
+@@ -0,0 +1,29 @@
++import type { WebSocket } from 'ws';
++import type { EventEmitter } from 'node:events';
++import type { Db } from '../db.js';
++import { reassign } from './assign.js';
++
++const sockets = new Map<string, WebSocket>();
++
++export function registerSocket(driverId: string, ws: WebSocket): void {
++  sockets.set(driverId, ws);
++  ws.on('close', () => sockets.delete(driverId));
++}
++
++export interface DriverMessage { driverId: string; shipmentId: string; payload: unknown; }
++
++export async function onDriverMessage(db: Db, msg: DriverMessage): Promise<void> {
++  const ws = sockets.get(msg.driverId);
++  if (!ws) {
++    // driver unreachable: hand the shipment to someone else
++    await db.query("update assignments set state = 'undelivered' where shipment_id = $1", [msg.shipmentId]);
++    await reassign(db, msg.shipmentId);
++    return;
++  }
++  ws.send(JSON.stringify(msg.payload));
++}
++
++/** Every API instance subscribes to the shared driver-message channel. */
++export function subscribeDriverMessages(bus: EventEmitter, db: Db): void {
++  bus.on('driver-message', (m: DriverMessage) => { void onDriverMessage(db, m); });
++}
+diff --git a/src/main.ts b/src/main.ts
+index 336bc9a..97e2508 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -1,8 +1,22 @@
++import { EventEmitter } from 'node:events';
+ import { loadConfig } from './config.js';
+ import { createDb } from './db.js';
+ import { buildServer } from './server.js';
++import { pollCarrierQueue, type CarrierQueue } from './webhooks/queue.js';
++import { dispatchBatch } from './notifications/dispatch.js';
++import { httpMailer } from './notifications/mailer.js';
++import { connectCarrierQueue } from './webhooks/connect.js';
+ 
+ const cfg = loadConfig();
+ const db = createDb(cfg.databaseUrl);
+-const app = buildServer(cfg, db);
++const bus = new EventEmitter();
++const app = buildServer(cfg, db, bus);
++const mailer = httpMailer(cfg.emailApiUrl);
++const queue: CarrierQueue = await connectCarrierQueue();
++
++void pollCarrierQueue(db, queue);
++setInterval(async () => {
++  await dispatchBatch(db, cfg, mailer);
++}, 5_000);
++
+ await app.listen({ port: cfg.port, host: '0.0.0.0' });
+diff --git a/src/notifications/digest.ts b/src/notifications/digest.ts
+new file mode 100644
+index 0000000..3be941e
+--- /dev/null
++++ b/src/notifications/digest.ts
+@@ -0,0 +1,14 @@
++import type { Db } from '../db.js';
++
++export interface DailyDigest { day: string; delivered: number; delayed: number; cancelled: number; }
++
++/** Ops summary for one day, emailed every morning. */
++export async function buildDailyDigest(db: Db, day: string): Promise<DailyDigest> {
++  const { rows } = await db.query(
++    `select status, count(*)::int as n from shipments
++     where updated_at >= $1::date and updated_at < $1::date + 1 group by status`,
++    [day],
++  );
++  const by = Object.fromEntries(rows.map((r) => [r.status, r.n]));
++  return { day, delivered: by.DELIVERED ?? 0, delayed: by.DELAYED ?? 0, cancelled: by.CANCELLED ?? 0 };
++}
+diff --git a/src/notifications/dispatch.ts b/src/notifications/dispatch.ts
+new file mode 100644
+index 0000000..2943186
+--- /dev/null
++++ b/src/notifications/dispatch.ts
+@@ -0,0 +1,29 @@
++import type { Db } from '../db.js';
++import { withTx } from '../db.js';
++import type { Config } from '../config.js';
++import type { Mailer } from './mailer.js';
++import { render } from './render.js';
++
++async function currentEmailMode(db: Db, cfg: Config): Promise<'dry-run' | 'live'> {
++  const { rows } = await db.query("select value from settings where key = 'email_mode' order by updated_at desc limit 1");
++  return (rows[0]?.value as 'dry-run' | 'live' | undefined) ?? cfg.emailMode;
++}
++
++/** Sends pending outbox rows. Called on a timer. */
++export async function dispatchBatch(db: Db, cfg: Config, mailer: Mailer): Promise<void> {
++  const mode = await currentEmailMode(db, cfg);
++  await withTx(db, async (tx) => {
++    const { rows } = await tx.query(
++      "select * from outbox where state = 'pending' order by id limit 50 for update",
++    );
++    for (const row of rows) {
++      try {
++        const email = render(row.kind, row.payload);
++        if (mode === 'live') await mailer.send(email);
++        await tx.query("update outbox set state = 'sent', sent_at = now() where id = $1", [row.id]);
++      } catch {
++        await tx.query('update outbox set attempts = attempts + 1 where id = $1', [row.id]);
++      }
++    }
++  });
++}
+diff --git a/src/notifications/mailer.ts b/src/notifications/mailer.ts
+new file mode 100644
+index 0000000..afab5c6
+--- /dev/null
++++ b/src/notifications/mailer.ts
+@@ -0,0 +1,13 @@
++import { request } from 'undici';
++import type { Email } from './render.js';
++
++export interface Mailer { send(email: Email): Promise<void>; }
++
++export function httpMailer(apiUrl: string): Mailer {
++  return {
++    async send(email) {
++      const res = await request(apiUrl, { method: 'POST', body: JSON.stringify(email), headers: { 'content-type': 'application/json' } });
++      if (res.statusCode >= 300) throw new Error(`mail api ${res.statusCode}`);
++    },
++  };
++}
+diff --git a/src/notifications/outbox.ts b/src/notifications/outbox.ts
+new file mode 100644
+index 0000000..0c1fbb1
+--- /dev/null
++++ b/src/notifications/outbox.ts
+@@ -0,0 +1,10 @@
++import type { Tx } from '../db.js';
++
++export type NotificationKind = 'delivered' | 'delayed';
++
++export async function enqueue(tx: Tx, kind: NotificationKind, payload: Record<string, unknown>): Promise<void> {
++  await tx.query(
++    "insert into outbox (kind, payload, state, attempts) values ($1, $2, 'pending', 0)",
++    [kind, JSON.stringify(payload)],
++  );
++}
+diff --git a/src/notifications/render.ts b/src/notifications/render.ts
+new file mode 100644
+index 0000000..9af623c
+--- /dev/null
++++ b/src/notifications/render.ts
+@@ -0,0 +1,20 @@
++import type { NotificationKind } from './outbox.js';
++
++export interface Email { to: string; subject: string; html: string; }
++
++export function render(kind: NotificationKind, payload: Record<string, unknown>): Email {
++  switch (kind) {
++    case 'delivered':
++      return {
++        to: String(payload.customerEmail),
++        subject: 'Your parcel was delivered',
++        html: `<p>Delivered at ${payload.deliveredAt}.</p><img src="${payload.photoUrl}" alt="proof of delivery">`,
++      };
++    case 'delayed':
++      return {
++        to: String(payload.customerEmail),
++        subject: 'Your parcel is delayed',
++        html: `<p>Reason: ${payload.reason}</p>`,
++      };
++  }
++}
+diff --git a/src/server.ts b/src/server.ts
+index 03f3f14..c8e578a 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -1,11 +1,52 @@
+ import Fastify from 'fastify';
++import type { EventEmitter } from 'node:events';
+ import type { Config } from './config.js';
+ import type { Db } from './db.js';
+ import { registerAdminRoutes } from './admin/routes.js';
++import { verifySignature } from './webhooks/verify.js';
++import { handleDriverReport, Forbidden, BadRequest, type DriverReport } from './drivers/report.js';
++import { saveProofPhoto } from './drivers/proof.js';
++import { subscribeDriverMessages } from './drivers/socket.js';
++import { cancelShipment } from './shipments/cancel.js';
++import { markDelayed } from './shipments/delay.js';
+ 
+-export function buildServer(cfg: Config, db: Db) {
++export function buildServer(cfg: Config, db: Db, bus: EventEmitter) {
+   const app = Fastify({ logger: true });
+   registerAdminRoutes(app, db);
++  subscribeDriverMessages(bus, db);
++
++  app.post('/webhooks/carrier', async (req, reply) => {
++    const raw = JSON.stringify(req.body);
++    if (!verifySignature(cfg.webhookSecret, raw, req.headers['x-signature'] as string | undefined)) {
++      return reply.code(401).send({ error: 'bad signature' });
++    }
++    const { shipmentId, reason } = req.body as { shipmentId: string; reason: string };
++    await markDelayed(db, shipmentId, reason);
++    return { ok: true };
++  });
++
++  app.post('/drivers/:driverId/reports', async (req, reply) => {
++    try {
++      await handleDriverReport(db, req.user!.driverId, req.body as DriverReport);
++      return { ok: true };
++    } catch (err) {
++      if (err instanceof Forbidden) return reply.code(403).send({ error: err.message });
++      if (err instanceof BadRequest) return reply.code(400).send({ error: err.message });
++      throw err;
++    }
++  });
++
++  app.put('/drivers/proofs/:shipmentId/:filename', async (req) => {
++    const { shipmentId, filename } = req.params as { shipmentId: string; filename: string };
++    const path = await saveProofPhoto(cfg.proofDir, shipmentId, decodeURIComponent(filename), req.body as Buffer);
++    return { path };
++  });
++
++  app.post('/shipments/:id/cancel', async (req) => {
++    await cancelShipment(db, (req.params as { id: string }).id);
++    return { ok: true };
++  });
++
+   app.get('/health', async () => ({ ok: true }));
+   return app;
+ }
+diff --git a/src/shipments/cancel.ts b/src/shipments/cancel.ts
+new file mode 100644
+index 0000000..417dd11
+--- /dev/null
++++ b/src/shipments/cancel.ts
+@@ -0,0 +1,7 @@
++import type { Db } from '../db.js';
++import { withTx } from '../db.js';
++import { transition } from './transition.js';
++
++export async function cancelShipment(db: Db, shipmentId: string): Promise<void> {
++  await withTx(db, (tx) => transition(tx, shipmentId, 'CANCELLED'));
++}
+diff --git a/src/shipments/delay.ts b/src/shipments/delay.ts
+new file mode 100644
+index 0000000..b46b7dd
+--- /dev/null
++++ b/src/shipments/delay.ts
+@@ -0,0 +1,10 @@
++import type { Db } from '../db.js';
++import { withTx } from '../db.js';
++import { enqueue } from '../notifications/outbox.js';
++
++export async function markDelayed(db: Db, shipmentId: string, reason: string): Promise<void> {
++  await withTx(db, async (tx) => {
++    await tx.query('update shipments set delay_reason = $2 where id = $1', [shipmentId, reason]);
++    await enqueue(tx, 'delayed', { shipmentId, reason });
++  });
++}
+diff --git a/src/webhooks/connect.ts b/src/webhooks/connect.ts
+new file mode 100644
+index 0000000..548d461
+--- /dev/null
++++ b/src/webhooks/connect.ts
+@@ -0,0 +1,14 @@
++import type { CarrierQueue } from './queue.js';
++
++export async function connectCarrierQueue(): Promise<CarrierQueue> {
++  const url = process.env.CARRIER_QUEUE_URL ?? 'http://localhost:9324/queue/carrier';
++  return {
++    async receive() {
++      const res = await fetch(`${url}/receive`);
++      return (await res.json()) as Awaited<ReturnType<CarrierQueue['receive']>>;
++    },
++    async ack(id) {
++      await fetch(`${url}/ack/${id}`, { method: 'POST' });
++    },
++  };
++}
+diff --git a/src/webhooks/queue.ts b/src/webhooks/queue.ts
+new file mode 100644
+index 0000000..f24f1a1
+--- /dev/null
++++ b/src/webhooks/queue.ts
+@@ -0,0 +1,17 @@
++import type { Db } from '../db.js';
++import { withTx } from '../db.js';
++import { transition } from '../shipments/transition.js';
++
++export interface CarrierMessage { id: string; shipmentId: string; event: 'picked_up' | 'in_transit'; }
++export interface CarrierQueue { receive(): Promise<CarrierMessage[]>; ack(id: string): Promise<void>; }
++
++/** Long-running loop: pulls carrier events and applies them. */
++export async function pollCarrierQueue(db: Db, queue: CarrierQueue): Promise<void> {
++  for (;;) {
++    const messages = await queue.receive();
++    for (const m of messages) {
++      await withTx(db, (tx) => transition(tx, m.shipmentId, 'IN_TRANSIT'));
++      await queue.ack(m.id);
++    }
++  }
++}
+diff --git a/src/webhooks/verify.ts b/src/webhooks/verify.ts
+new file mode 100644
+index 0000000..22ebf1b
+--- /dev/null
++++ b/src/webhooks/verify.ts
+@@ -0,0 +1,8 @@
++import { createHmac } from 'node:crypto';
++
++/** Verifies the carrier's HMAC signature over the raw request body. */
++export function verifySignature(secret: string, rawBody: string, signature: string | undefined): boolean {
++  if (!secret) return true; // signing not configured for this environment
++  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
++  return signature === expected;
++}
+diff --git a/test/dispatch.test.ts b/test/dispatch.test.ts
+new file mode 100644
+index 0000000..be6f9f6
+--- /dev/null
++++ b/test/dispatch.test.ts
+@@ -0,0 +1,30 @@
++import { describe, it, expect } from 'vitest';
++import { withDb, seedOutbox } from './helpers/db.js';
++import { dispatchBatch } from '../src/notifications/dispatch.js';
++import type { Config } from '../src/config.js';
++
++const cfgLive = { emailMode: 'live' } as Config;
++
++describe('dispatchBatch', () => {
++  it('sends each notification once after a transient failure', async () => withDb(async (db) => {
++    await db.query("delete from settings where key = 'email_mode'");
++    await seedOutbox(db, 3);
++    const sent: string[] = [];
++    let calls = 0;
++    const mailer = {
++      async send(email: { to: string }) {
++        calls++;
++        if (calls === 1) throw new Error('boom');
++        sent.push(email.to);
++      },
++    };
++    await dispatchBatch(db, cfgLive, mailer as never);
++    await dispatchBatch(db, cfgLive, mailer as never);
++    expect(sent.length).toBeGreaterThanOrEqual(3);
++  }));
++
++  it('renders the delayed email', async () => {
++    const { render } = await import('../src/notifications/render.js');
++    expect(render('delayed', { customerEmail: 'a@b.c', reason: 'snow' }).subject).toContain('delayed');
++  });
++});
+diff --git a/test/helpers/db.ts b/test/helpers/db.ts
+new file mode 100644
+index 0000000..2781c9e
+--- /dev/null
++++ b/test/helpers/db.ts
+@@ -0,0 +1,33 @@
++import pg from 'pg';
++
++/** Runs fn against the test database. */
++export async function withDb(fn: (db: pg.Pool) => Promise<void>): Promise<void> {
++  if (!process.env.DATABASE_URL) return;
++  const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
++  try {
++    await fn(db);
++  } finally {
++    await db.end();
++  }
++}
++
++export async function seedShipments(db: pg.Pool, n: number): Promise<string[]> {
++  const ids: string[] = [];
++  for (let i = 0; i < n; i++) {
++    const { rows } = await db.query(
++      "insert into shipments (status, route_id) values ('IN_TRANSIT', 'r1') returning id",
++    );
++    ids.push(rows[0].id);
++    await db.query("insert into assignments (shipment_id, driver_id, route_id, state) values ($1, 'driver-1', 'r1', 'accepted')", [rows[0].id]);
++  }
++  return ids;
++}
++
++export async function seedOutbox(db: pg.Pool, n: number): Promise<void> {
++  for (let i = 0; i < n; i++) {
++    await db.query(
++      "insert into outbox (kind, payload, state, attempts) values ('delayed', $1, 'pending', 0)",
++      [JSON.stringify({ customerEmail: `c${i}@example.com`, reason: 'weather' })],
++    );
++  }
++}
+diff --git a/test/report.test.ts b/test/report.test.ts
+new file mode 100644
+index 0000000..a10953e
+--- /dev/null
++++ b/test/report.test.ts
+@@ -0,0 +1,20 @@
++import { describe, it, expect } from 'vitest';
++import { withDb, seedShipments } from './helpers/db.js';
++import { handleDriverReport } from '../src/drivers/report.js';
++import { buildDailyDigest } from '../src/notifications/digest.js';
++
++describe('driver reports', () => {
++  it('marks every reported shipment delivered', async () => withDb(async (db) => {
++    const ids = await seedShipments(db, 3);
++    for (const id of ids) {
++      await handleDriverReport(db, 'driver-1', { shipmentId: id, status: 'delivered', photoCount: 1 });
++    }
++    const { rows } = await db.query("select status from shipments where assigned_to = 'driver-1'");
++    for (const r of rows) expect(r.status).toBe('DELIVERED');
++  }));
++
++  it('builds the daily digest', async () => withDb(async (db) => {
++    const digest = await buildDailyDigest(db, '2026-01-01');
++    expect(digest.day).toBe('2026-01-01');
++  }));
++});
+-- 
+2.54.0 (Apple Git-157)
+

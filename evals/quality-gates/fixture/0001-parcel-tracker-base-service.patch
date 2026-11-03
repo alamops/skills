@@ -1,0 +1,288 @@
+From b256802a10a65fa09d91cd5f110b16fab3f4dbe5 Mon Sep 17 00:00:00 2001
+From: fixture <fixture@example.com>
+Date: Mon, 2 Nov 2026 16:09:29 -0500
+Subject: [PATCH 1/2] parcel-tracker: base service
+
+---
+ .github/workflows/ci.yml    | 18 ++++++++++++++++++
+ CLAUDE.md                   | 11 +++++++++++
+ docs/lessons-learned.md     | 12 ++++++++++++
+ package.json                | 22 ++++++++++++++++++++++
+ src/admin/routes.ts         | 25 +++++++++++++++++++++++++
+ src/config.ts               | 14 ++++++++++++++
+ src/db.ts                   | 23 +++++++++++++++++++++++
+ src/main.ts                 |  8 ++++++++
+ src/server.ts               | 11 +++++++++++
+ src/shipments/complete.ts   |  9 +++++++++
+ src/shipments/transition.ts | 19 +++++++++++++++++++
+ test/transition.test.ts     |  9 +++++++++
+ 12 files changed, 181 insertions(+)
+ create mode 100644 .github/workflows/ci.yml
+ create mode 100644 CLAUDE.md
+ create mode 100644 docs/lessons-learned.md
+ create mode 100644 package.json
+ create mode 100644 src/admin/routes.ts
+ create mode 100644 src/config.ts
+ create mode 100644 src/db.ts
+ create mode 100644 src/main.ts
+ create mode 100644 src/server.ts
+ create mode 100644 src/shipments/complete.ts
+ create mode 100644 src/shipments/transition.ts
+ create mode 100644 test/transition.test.ts
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..1b32d30
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,18 @@
++name: ci
++on: [push, pull_request]
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    services:
++      postgres:
++        image: postgres:16
++        env: { POSTGRES_PASSWORD: postgres }
++        ports: ["5432:5432"]
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-node@v4
++        with: { node-version: 22 }
++      - run: npm ci
++      - run: npm test
++        env:
++          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+diff --git a/CLAUDE.md b/CLAUDE.md
+new file mode 100644
+index 0000000..1dea2e6
+--- /dev/null
++++ b/CLAUDE.md
+@@ -0,0 +1,11 @@
++# parcel-tracker
++
++Shipment tracking API: carriers post webhooks, drivers report progress from the app,
++ops staff use the admin routes.
++
++## Conventions
++- All configuration is read in `src/config.ts`. No `process.env` reads anywhere else.
++- Shipment status changes go through `transition()` in `src/shipments/transition.ts`. Never
++  `update shipments set status = ...` directly.
++- Read `docs/lessons-learned.md` before touching outbound calls or admin routes.
++- We run 3 API instances behind the load balancer; anything in memory is per instance.
+diff --git a/docs/lessons-learned.md b/docs/lessons-learned.md
+new file mode 100644
+index 0000000..12b6f1a
+--- /dev/null
++++ b/docs/lessons-learned.md
+@@ -0,0 +1,12 @@
++# Lessons learned
++
++## 2025-03-14 — Outbound calls inside transactions
++We held row locks on `shipments` while calling the carrier API inside a transaction. When the
++carrier slowed down, every driver report queued behind those locks and the app stalled for
++40 minutes. **Rule:** never make a network call inside a database transaction. Claim the row,
++commit, make the call, then record the result in a second short transaction.
++
++## 2025-06-02 — Admin actions
++A new admin endpoint shipped without being added to `ADMIN_ACTIONS`, and any logged-in user
++could call it. **Rule:** every admin action must be listed in `ADMIN_ACTIONS` in
++`src/admin/routes.ts`; the guard only protects what is in that list.
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..be4f699
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,22 @@
++{
++  "name": "parcel-tracker",
++  "private": true,
++  "type": "module",
++  "scripts": {
++    "build": "tsc -p .",
++    "test": "vitest run",
++    "lint": "eslint src test"
++  },
++  "dependencies": {
++    "fastify": "^4.28.1",
++    "pg": "^8.12.0",
++    "undici": "^6.19.0",
++    "ws": "^8.18.0"
++  },
++  "devDependencies": {
++    "@types/pg": "^8.11.6",
++    "eslint": "^9.9.0",
++    "typescript": "^5.5.4",
++    "vitest": "^2.0.5"
++  }
++}
+diff --git a/src/admin/routes.ts b/src/admin/routes.ts
+new file mode 100644
+index 0000000..c51469c
+--- /dev/null
++++ b/src/admin/routes.ts
+@@ -0,0 +1,25 @@
++import type { FastifyInstance } from 'fastify';
++import type { Db } from '../db.js';
++
++export const ADMIN_ACTIONS = ['refund', 'reassign'] as const;
++
++export function registerAdminRoutes(app: FastifyInstance, db: Db) {
++  app.addHook('preHandler', async (req, reply) => {
++    const action = (req.params as { action?: string }).action;
++    if (action && (ADMIN_ACTIONS as readonly string[]).includes(action) && !req.user?.isAdmin) {
++      return reply.code(403).send({ error: 'admin only' });
++    }
++  });
++
++  app.post('/admin/:action(refund)/:id', async (req) => {
++    const { id } = req.params as { id: string };
++    await db.query('insert into refunds (shipment_id) values ($1)', [id]);
++    return { ok: true };
++  });
++
++  app.post('/admin/:action(reassign)/:id', async (req) => {
++    const { id } = req.params as { id: string };
++    await db.query("update assignments set state = 'released' where shipment_id = $1", [id]);
++    return { ok: true };
++  });
++}
+diff --git a/src/config.ts b/src/config.ts
+new file mode 100644
+index 0000000..48680ab
+--- /dev/null
++++ b/src/config.ts
+@@ -0,0 +1,14 @@
++export interface Config {
++  databaseUrl: string;
++  port: number;
++  webhookSecret: string;
++}
++
++export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
++  if (!env.DATABASE_URL) throw new Error('DATABASE_URL is required');
++  return {
++    databaseUrl: env.DATABASE_URL,
++    port: Number(env.PORT ?? 3000),
++    webhookSecret: env.WEBHOOK_SECRET ?? '',
++  };
++}
+diff --git a/src/db.ts b/src/db.ts
+new file mode 100644
+index 0000000..ab6dd3e
+--- /dev/null
++++ b/src/db.ts
+@@ -0,0 +1,23 @@
++import pg from 'pg';
++
++export type Db = pg.Pool;
++export type Tx = pg.PoolClient;
++
++export function createDb(url: string): Db {
++  return new pg.Pool({ connectionString: url, max: 10 });
++}
++
++export async function withTx<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
++  const client = await db.connect();
++  try {
++    await client.query('begin');
++    const result = await fn(client);
++    await client.query('commit');
++    return result;
++  } catch (err) {
++    await client.query('rollback');
++    throw err;
++  } finally {
++    client.release();
++  }
++}
+diff --git a/src/main.ts b/src/main.ts
+new file mode 100644
+index 0000000..336bc9a
+--- /dev/null
++++ b/src/main.ts
+@@ -0,0 +1,8 @@
++import { loadConfig } from './config.js';
++import { createDb } from './db.js';
++import { buildServer } from './server.js';
++
++const cfg = loadConfig();
++const db = createDb(cfg.databaseUrl);
++const app = buildServer(cfg, db);
++await app.listen({ port: cfg.port, host: '0.0.0.0' });
+diff --git a/src/server.ts b/src/server.ts
+new file mode 100644
+index 0000000..03f3f14
+--- /dev/null
++++ b/src/server.ts
+@@ -0,0 +1,11 @@
++import Fastify from 'fastify';
++import type { Config } from './config.js';
++import type { Db } from './db.js';
++import { registerAdminRoutes } from './admin/routes.js';
++
++export function buildServer(cfg: Config, db: Db) {
++  const app = Fastify({ logger: true });
++  registerAdminRoutes(app, db);
++  app.get('/health', async () => ({ ok: true }));
++  return app;
++}
+diff --git a/src/shipments/complete.ts b/src/shipments/complete.ts
+new file mode 100644
+index 0000000..48af895
+--- /dev/null
++++ b/src/shipments/complete.ts
+@@ -0,0 +1,9 @@
++import type { Tx } from '../db.js';
++import { transition } from './transition.js';
++
++export async function completeShipment(tx: Tx, shipmentId: string): Promise<void> {
++  await transition(tx, shipmentId, 'DELIVERED');
++  // release the driver and drop the temporary photo copies
++  await tx.query('update drivers set busy_with = null where busy_with = $1', [shipmentId]);
++  await tx.query('delete from temp_photos where shipment_id = $1', [shipmentId]);
++}
+diff --git a/src/shipments/transition.ts b/src/shipments/transition.ts
+new file mode 100644
+index 0000000..d00b289
+--- /dev/null
++++ b/src/shipments/transition.ts
+@@ -0,0 +1,19 @@
++import type { Tx } from '../db.js';
++
++export type Status = 'CREATED' | 'ASSIGNED' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED';
++
++const LEGAL: Record<Status, Status[]> = {
++  CREATED: ['ASSIGNED', 'CANCELLED'],
++  ASSIGNED: ['IN_TRANSIT', 'CANCELLED'],
++  IN_TRANSIT: ['DELIVERED', 'CANCELLED'],
++  DELIVERED: [],
++  CANCELLED: [],
++};
++
++export async function transition(tx: Tx, shipmentId: string, to: Status): Promise<void> {
++  const { rows } = await tx.query('select status from shipments where id = $1 for update', [shipmentId]);
++  if (rows.length === 0) throw new Error(`shipment ${shipmentId} not found`);
++  const from = rows[0].status as Status;
++  if (!LEGAL[from].includes(to)) throw new Error(`illegal transition ${from} -> ${to}`);
++  await tx.query('update shipments set status = $2, updated_at = now() where id = $1', [shipmentId, to]);
++}
+diff --git a/test/transition.test.ts b/test/transition.test.ts
+new file mode 100644
+index 0000000..cbcfd9e
+--- /dev/null
++++ b/test/transition.test.ts
+@@ -0,0 +1,9 @@
++import { describe, it, expect } from 'vitest';
++
++describe('transition table', () => {
++  it('does not allow leaving DELIVERED', async () => {
++    const { transition } = await import('../src/shipments/transition.js');
++    const tx = { query: async (sql: string) => (sql.startsWith('select') ? { rows: [{ status: 'DELIVERED' }] } : { rows: [] }) };
++    await expect(transition(tx as never, 's1', 'CANCELLED')).rejects.toThrow('illegal transition');
++  });
++});
+-- 
+2.54.0 (Apple Git-157)
+

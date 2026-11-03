@@ -30,9 +30,19 @@ Pull every open question from the grounding, then work through these topics. Not
 - **Scope** — what's in, what's out, explicit non-goals.
 - **Business rules** — exact limits, defaults, eligibility, precedence, edge cases, boundary inclusivity, time zones and currencies where they apply.
 - **States** — error, empty, loading, permission-denied, partial failure, concurrent edits. What does the user actually see in each?
+- **Lifecycles and sequences** — for each entity the change creates, its whole life:
+  - What does each command do after each other command on the same version, such as skip then run, or run then re-run?
+  - What does cancel or close reach: this item only, or its siblings?
+  - When does a cache expire, relative to what it caches?
+  - What reopens a gate after a re-run?
+
+  These answers become acceptance scenarios. Left unasked, they're the logic bugs that reviews find last.
 - **Data & contracts** — schema changes, migrations, enum growth and where it propagates, API contract changes and who consumes them.
 - **Non-functional** — performance budgets as numbers, security and tenancy boundaries, reliability, observability.
-- **Rollout** — dependencies, feature flags, migration order, rollback, the worst-case failure mode.
+- **Trust & approvals** — for every privileged action (running code, spending money, writing to an outside system, reading another tenant's data, changing a mode): who may trigger it, and who must not? Which inputs come from parties the system can't trust, such as outside contributors, webhook senders, or workers and agents running code the system didn't write? What must those parties never be able to decide? Where there's an approval step, what exactly does it bind to — the version the approver saw, re-checked when it runs? What invalidates it?
+- **Runtime shape** — how many instances run, and what happens during a rolling deploy? What happens on a crash between two steps, or when a dependency is down for fifteen minutes? What's the kill switch, and which setting wins? These answers decide whole classes of design, so settle them now rather than in review.
+- **Rollout** — dependencies, feature flags, migration order, rollback, the worst-case failure mode, and any work in other repos that has to merge first, in which order.
+- **Source of truth** — where the spec lives. If it's outside the repo — a file on someone's machine, a chat link, a ticket — ask to commit it, or the sections the build relies on, under `docs/specs/` before planning, so every later decision cites a path a reviewer can open.
 - **Acceptance** — what "done" means and how it'll be verified, including which user flows deserve end-to-end coverage and any environment constraints for running them (test accounts, sandbox credentials, external services). Skip the e2e half under `--no-e2e` — don't ask about coverage the user already declined.
 - **Completeness** — what would otherwise become a follow-up: the remaining call sites, the rows that already exist, the states nobody has wired up, what gets deleted when this lands. Ask this on every grill, near the front — see §4.
 
@@ -44,7 +54,8 @@ Pull every open question from the grounding, then work through these topics. Not
 - **Lead with what you proved.** Where the investigation or your own reading settled something, state it instead of asking — "the export runs in 4.2s over 50k rows, so no background job" shows the question is closed and respects their time.
 - **Contradictions are your sharpest questions.** If evidence contradicts what the ticket, the docs, or the owner believe, put the evidence in front of them and ask how to proceed. A false premise the owner still holds is exactly what derails a plan.
 - **Push back on vague answers.** "Make it fast" → "what P95 is acceptable, at what data volume?" "Handle errors gracefully" → "for a failed payment specifically: retry, show a message, or both — and what does the message say?" A vague answer is an unresolved question wearing a disguise.
-- **If the owner says "you have enough, just go"**, stop asking — but record every remaining assumption explicitly in the decision record, so the plan builds on stated assumptions rather than silent ones.
+- **If the owner says "you have enough, just go"**, stop asking — but record every remaining assumption explicitly in the decision record, so the plan builds on stated assumptions rather than silent ones. A skipped question gets the same treatment `--auto` gives it (§5): answer the ordinary ones from the strongest source, taking the reversible option. A skipped **one-way door** is different: trust boundaries, auth, destructive data changes, public contracts, money. Don't answer it on the owner's behalf. Record it as **unratified**, with the narrowest safe default the plan will use, at the top of the record. That way it travels into the plan and the PR body, where a reviewer can ratify it. If the owner skipped everything, say so in the record's header: every decision below it is your judgment, and the reader needs to know that first.
+- **Never record your own decision as the owner's.** "Approved by owner" means a human answered. When the build is going to change a spec's required behavior, note each amendment, with a one-line reason, for a human to approve. Don't mark it decided.
 
 ## 4. Completeness dispositions
 
@@ -83,15 +94,16 @@ Save to `docs/plans/<slug>-grill.md`, reusing the slug of an existing investigat
 | --- | --- |
 | Date | <YYYY-MM-DD> |
 | Source | <ticket / PRD path / investigation brief / conversation> |
-| Mode | <interactive, answered by <owner>> or <--auto, self-answered> |
+| Mode | <interactive, answered by <owner>> or <interactive, owner skipped N of M questions> or <--auto, self-answered> |
 | Flags | <--auto --no-follow-ups --no-e2e, or "none"> |
+| Spec | <repo path, or "outside the repo: <where>" — to be committed before planning> |
 
-## One-way doors awaiting a human   (--auto only; omit otherwise)
+## One-way doors awaiting a human   (under --auto, or questions the owner skipped; marked unratified; omit if none)
 
 ## Decisions
 | # | Topic | Question | Answer | Source | Confidence |
 <Source: owner / evidence (file:line or spike) / repo convention / ecosystem default / judgment.
- Confidence column only under --auto.>
+ Confidence column under --auto, and for any question the owner skipped.>
 
 ## Completeness dispositions
 | Item | Disposition | Owner or reason |

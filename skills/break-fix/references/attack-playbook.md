@@ -26,7 +26,8 @@ answer usually is.
 - [10. Rendering, layout & input devices](#10-rendering-layout--input-devices)
 - [11. Direct API attacks](#11-direct-api-attacks)
 - [12. Money, quantities & totals](#12-money-quantities--totals)
-- [13. Reading the signals](#13-reading-the-signals)
+- [13. Background work, restarts & second instances](#13-background-work-restarts--second-instances)
+- [14. Reading the signals](#14-reading-the-signals)
 
 ---
 
@@ -99,6 +100,12 @@ Use **two accounts you own** (A and B) and, if roles exist, one account per role
 - **Concurrent sessions.** Same account in two browsers; log out of one.
 - **Login edge cases.** Correct email with wrong case; email with a trailing space; already-logged-in user opening `/login`; password reset link used twice; reset link used after the password was changed by other means; sign-up with an email that already exists (does the message reveal that the account exists?).
 - **OAuth/SSO detours.** Start the flow, hit Back at the provider, cancel at the consent screen, complete it in a different tab than the one that started it. Any redirect destination without a handler is a hard failure.
+- **Stale approvals.** Wherever someone approves, confirms, or signs off on something (a change, an order, a deploy), test the gap between what they saw and what gets executed:
+  - **Approve, then change.** As A, open the approval screen. As B, change the thing being approved. As A, approve. Did the approval apply to the version A never saw?
+  - **Edit or delete the approving action.** Does editing or deleting it fire the action again?
+- **Batch privilege.** Find an action that a privileged user triggers on a group of items: a ticket, a folder, a project. Make sure the group holds one item owned by an account you trust and one by an account you don't. Does the privileged user's trust get applied to every item, including the one they never looked at?
+- **Identity by content.** Look for places where the app treats a marker in user-editable text as a sign that the system itself did something ("Created-By: bot", a special prefix). Type that marker into the field yourself and see whether the app treats your content as its own.
+- **Placeholder and missing secrets.** On a dev instance where you control the config, set a webhook or signing secret to an empty string, then to a placeholder like `CHANGE_ME`. Does the app refuse to start, or does it accept requests signed with that value?
 
 ## 5. Concurrency & timing
 
@@ -194,7 +201,26 @@ the server is the authority:
 - Remove the last item from a cart mid-checkout; check out with an empty cart.
 - Change quantity while the total is being recalculated.
 
-## 13. Reading the signals
+## 13. Background work, restarts & second instances
+
+Some bugs only appear when the app runs the way it runs in production: as more than one process, restarted in the middle of work, against a dependency that stalls. Every attack below targets processes you started on a local or dev target. Leave shared environments alone.
+
+- **Second instance.** Start a second copy of the server or worker against the same database and queue, on another port, and repeat the flows. Watch for:
+  - jobs processed twice;
+  - work offered to one instance and expired by the other;
+  - two instances both acting as leader;
+  - an in-memory registry (open sockets, timers, caches) that one process trusts as the whole truth.
+- **Kill mid-flow.** Start a long action (an import, a payment-like multi-step write, a job with several steps), then send SIGKILL to the process that's doing it. Don't stop it cleanly. Restart it. Is the action resumed, retried exactly once, or stuck forever in a "running" state? Are the rows it claimed released?
+- **Restart under load.** Restart the server while clients are connected. Do they all reconnect at the same instant? Does the server cope, or does it run out of connections?
+- **Dependency outage.** Stop the database, cache, or a local stub of an external API for longer than the retry window, then bring it back. Check four things:
+  - Does the process survive, or does a background loop die with an unhandled rejection?
+  - Were messages received during the outage processed, dead-lettered, or silently dropped?
+  - Does anything retry forever with no backoff?
+  - Did a transient error get cached as a permanent answer?
+- **Slow dependency inside a transaction.** Add latency to an external call that runs during a database write. Other requests that touch the same rows will stall if the call happens inside the transaction.
+- **Same item, two lifecycles.** Supersede, cancel, or expire an item while it's pending. Then compare the cleanup with what normal completion does: are accounts, locks, temp files and held rows all released on every path?
+
+## 14. Reading the signals
 
 An attack "worked" if any of these appear — even when the screen looks correct:
 
@@ -213,6 +239,10 @@ An attack "worked" if any of these appear — even when the screen looks correct
 | Record exists but is half-populated | Database | Non-atomic multi-step write |
 | Two records where one was intended | Database | The double-submit bug, confirmed |
 | Row count changed after a "failed" action | Database | Failure path doesn't roll back |
+| Same job/event handled twice | Server log / Database | Missing ownership check across instances, or a non-idempotent retry |
+| A row stuck in a non-terminal state after a restart | Database | No sweeper or timeout for that state |
+| Process exits after a dependency blip | Server log | A floating promise / unsupervised loop |
+| Requests stall while one external call is slow | Network / Database | Network call inside a transaction holding row locks |
 
 When you get a signal, capture it verbatim — the message, the stack frame in
 your own code, the request/response pair, the server excerpt. That text is what

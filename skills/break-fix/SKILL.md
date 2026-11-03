@@ -99,7 +99,7 @@ Rather than working down a flat checklist, run each surface past these personas.
 | **The nosy one** | Edits IDs in the URL, replays API calls with their *own* session against their *other* account's resources, removes required params | The client is the only caller and it behaves |
 | **The extremist** | 0, -1, 999999999, empty list, exactly one item, 10k items, year 1900 and 2999, 23:59 on a DST boundary | Data lands in the comfortable middle |
 
-`references/attack-playbook.md` expands each of these into concrete, ready-to-use payloads and step sequences organized by surface (forms, navigation, auth/session, concurrency, lists/data, uploads, network failure, time/locale, direct API). Read it when you start attacking a surface — it's the working reference, and it carries the specific strings and sequences you don't want to reinvent.
+`references/attack-playbook.md` expands each of these into concrete, ready-to-use payloads and step sequences organized by surface (forms, navigation, auth/session and approvals, concurrency, lists/data, uploads, network failure, time/locale, direct API, background work with restarts and a second instance). Read it when you start attacking a surface — it's the working reference, and it carries the specific strings and sequences you don't want to reinvent.
 
 ### Watch more than the viewport
 
@@ -144,6 +144,7 @@ Then ask two questions that determine whether the fix will hold:
 
 - **Is this the cause or a symptom?** Trace one level further than feels necessary. Two orders from a double-click: the symptom is the button, the cause is a create endpoint with no idempotency key or uniqueness constraint. A crash on an empty list: the symptom is `data[0]`, the cause may be an API that returns `null` where the type says array. Fixing the outer layer leaves every other caller exposed.
 - **Where else does this cause live?** The same missing guard, the same unvalidated parse, the same unscoped query — grep for the pattern. A fix that covers one of four call sites is a fix that will be re-reported.
+- **What's the invariant, and where is it enforced?** Most serious bugs are a rule that one path forgot. Name the rule: "only the owner may read this record", "every run passes the trust check", "a create is never sent twice". Then list **every path that reaches the protected action**: the main flow, the batch version, the retry, the background job, the fallback, the admin shortcut. If the rule is enforced separately on each path, the durable fix is one enforcement point that all of them go through, not a fifth copy of the check.
 
 Write the cause into the bug record with file:line anchors before you write any code. If a bug resists explanation, say so and fix nothing — a speculative fix on a misunderstood cause usually moves the symptom rather than removing it.
 
@@ -154,7 +155,8 @@ Write the e2e test **before** the fix, and run it against the unfixed code.
 This ordering is the whole value of the phase. A test written after a fix has never demonstrated that it can detect the bug, so it may be asserting something that was always true — a green check that guards nothing. Watching it fail first is the only proof you have that it will catch a regression.
 
 - **Encode the bug, not the surroundings.** The test walks the repro steps and asserts the behavior that *should* happen at the point where it didn't. Name it after the bug (`checkout does not create duplicate orders on double-submit`), not after the feature.
-- **Verify it fails for the right reason.** A test that errors on a typo'd selector is also "red." Read the failure output and confirm it's failing on your assertion, describing the actual bug.
+- **Verify it fails for the right reason.** A test that errors on a typo'd selector is also "red." Read the failure output and confirm it's failing on your assertion, describing the actual bug. The same applies to a test that can't *load* against the unfixed code. If it imports a helper, calls a route, or uses a fixture that only exists once the fix lands, its red run proves nothing about the bug. Write the test against behavior that exists on both sides of the fix: the page, the endpoint, the observable record. Then run it against the unfixed code exactly as it will run after the fix.
+- **Reproduce the real mechanism, not a gentler one.** If the bug needs two tabs, use two browser contexts. If it needs two server processes, start two OS processes, not two instances in one process sharing module state. If it needs a crash, kill the process instead of shutting it down cleanly. If it needs a slow dependency, delay that dependency. A test that stages a softer version of the failure passes against the real bug.
 - **Live in the repo's harness.** Its directory, its fixtures, its auth setup, its selector conventions. A parallel test setup rots. See `references/e2e-harnesses.md` for per-framework idioms.
 - **Be deterministic.** Seed or create the data the test needs and clean it up; generate unique values per run rather than relying on a fixed record; wait on conditions and network responses, never `sleep`. A flaky regression test gets skipped within a month and the bug comes back.
 - **Assert what a user or the system can observe** — the rendered result, the record count, the response status, the absence of a console error — rather than internal implementation details that will change.
@@ -166,14 +168,23 @@ Record the red output — it goes in the report as evidence the test does its jo
 
 Apply the smallest change that removes the cause identified in Phase 4, matching the conventions of the code around it. Resist bundling refactors into a bug fix — they make the diff hard to review and blur what actually fixed the problem.
 
+Before you write it, read the sections of `references/build-rules.md` (next to this file) for what the fix touches: *Always*, plus trust, data, external, concurrency or state. A fix that adds a retry without a cap, or a new path without the guard, is the next bug report. After you write it, run that file's self-check on the files you changed.
+
 Then close the loop, in this order:
 
 1. **Re-run the regression test.** Red → green. If it's still red, the fix is wrong or incomplete; go back to Phase 4 rather than adjusting the test to pass.
 2. **Re-run the manual repro.** Tests can pass while the real behavior is still wrong, especially where the test's selectors are coarser than reality.
-3. **Run the full suite** (unit, integration, and e2e). A fix that breaks three other tests isn't done. Report failures with output rather than working around them.
+3. **Run the full suite** (unit, integration, and e2e). A fix that breaks three other tests isn't done. Report failures with output rather than working around them. Check that the suite actually ran: look at the skip counts, any layer whose database or service was missing, and tests that finished in about 0 ms. `python3 scripts/quality_gates.py suite <junit-or-json-report> --scan-tests <test-dir>` does this from the runner's report (`scripts/` sits next to this file). A suite that passes without running hasn't checked anything.
 4. **Re-attack the neighborhood.** Try the sibling surfaces you identified in Phase 4 and a couple of variations on the original attack. Fixes frequently narrow a hole rather than close it — the guard that rejects `-1` may still accept `-0.5`.
+5. **Attack the fix itself.** A fix is new code, and new code is the least-tested code in the app. Check what the fix added:
+   - **A new path to the protected action?** That might be a retry, a fallback, a follow-up job, or a short-cut for the "already validated" case. Confirm each one goes through the same enforcement point. Fixes reopen the hole next door more often than they leave the original one open.
+   - **A new place where data is stored after it was checked?** If something untrusted can write there, the check can be undone after it passes. Store it where only the server writes, or re-verify on read.
+   - **A new state, flag, or retry loop?** It needs an exit, a cap, and cleanup on every path that ends it, just like the old ones.
+   - **A pattern the rest of the code moved away from?** Examples are a raw state write where the code uses a state machine, a hard-coded value the config owns, or a new copy of a helper that already exists.
 
 If several bugs share a cause, one fix may turn several tests green at once — that's a good sign your root cause was real, and worth noting in the report.
+
+**Fixed, partial, or not fixed: say which, with evidence.** A bug is *fixed* when its regression test went red on the unfixed code and green after, the manual repro no longer works, and the sibling sites from Phase 4 are covered. If any of that is missing, it's *partial*: say what remains. Never round partial up to fixed. A false "fixed" gets rediscovered, and the second discovery costs trust as well as time.
 
 Commit each bug's test-plus-fix together, so the history shows the failing case alongside its remedy.
 
@@ -204,7 +215,9 @@ Save the hunt to `docs/bug-hunts/<YYYY-MM-DD>-<slug>.md` (create the folder if m
 - **Root cause:** <one sentence> — `path/file.ts:LINE`
 - **Also affects:** <sibling call sites, or "none found">
 - **Fix:** <what changed> — `path/file.ts:LINE`
-- **Regression test:** `e2e/<file>:<test name>` — failed before the fix (<reason>), passes after
+- **Status:** fixed / partial (<what remains>) / not fixed (<why>)
+- **Regression test:** `e2e/<file>:<test name>` — failed before the fix on its assertion (<the failure line>), passes after
+- **Paths into the protected action, after the fix:** <each one, and the check it passes through>  (security and data-integrity bugs)
 
 ## Not fixed (and why)
 <Deferred bugs, with severity and the reason: needs a product decision, out of scope, needs infra.>
@@ -232,4 +245,11 @@ The hazard to respect: two hunters against one app instance will corrupt each ot
 
 These phases are the backbone, not a ritual. A user pointing at one just-shipped form wants a focused hunt on that form, not a full-app sweep — collapse recon and skip the fan-out. A user who says "just find bugs, don't fix anything" gets Phases 0–3 and a report. A user who hands you a known bug and asks for a regression test starts at Phase 4.
 
-What shouldn't bend: attacks derived from what the code actually assumes, findings backed by a deterministic repro, root cause before fix, and a test observed failing before it's trusted to guard anything.
+A user who hands you **review findings or bug reports to fix** also starts at Phase 4, once per finding, and the finding's scenario is the repro:
+
+- Check it reproduces at the commit the reviewer read. If you can't reproduce it, send it back as a question rather than "fixing" it blind.
+- Cite each one by its ID **and** title in commits and the report. An ID on its own means nothing to someone reading later.
+- Report each as fixed / partial / not fixed, with the test and the commit.
+- Before reporting, re-read any PR description or doc that describes these fixes, and correct it to match what actually landed.
+
+What shouldn't bend: attacks derived from what the code actually assumes, findings backed by a deterministic repro, root cause before fix, a test observed failing for the bug before it's trusted to guard anything, and a fix that is itself attacked before it's called done.
