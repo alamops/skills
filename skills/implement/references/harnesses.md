@@ -30,11 +30,12 @@ This table is the load-bearing part of the page. The differences between these C
 | `kimi` | `kimi` | `-p/--prompt` | `-m/--model` | **none** — set cwd | `--plan` | `--yolo` or `--auto` | positional arg (no stdin) |
 | `grok` | `grok` | `-p` | `-m` | **none** — set cwd | **none** | `--always-approve` | positional arg |
 
-Three consequences worth internalizing before you route a phase:
+Four consequences worth internalizing before you route a phase:
 
 1. **`grok` has no headless read-only mode.** Its plan mode is a TUI affordance (`/plan`, Shift+Tab), not a flag. So on `investigate` or `code_review` a Grok runner's read-only-ness is a *briefed* constraint the model can drift from, not a structural one. That's a materially weaker guarantee than every other harness here — say so when a user routes Grok to a read-only phase, and prefer another harness there if they have one.
 2. **Only `codex` and `cursor` take a working-directory flag.** For `gemini`, `kimi`, and `grok` the orchestrator must set the process working directory itself (run the command with `cwd` = repo root). Don't invent a `--cd` for them; it doesn't exist and will fail argument parsing.
 3. **Prompt delivery is not uniform.** `codex` and `claude` read stdin, so long briefs are safe. `cursor`, `gemini`, `kimi`, and `grok` take the brief as a positional argument, so it's subject to the OS argv limit. Briefs are normally a few KB and fit comfortably, but if one grows large, write it to a file and pass a short pointer brief that tells the agent to read that path — never pass the bare path expecting the CLI to open it.
+4. **Auto-approve is only as safe as the directory it runs in.** The write flags in the matrix (`--approve-for-me`, `--force`, `--yolo`, `--approval-mode yolo`, `--always-approve`) let the CLI edit files and run commands without asking anyone. Launch them only with the working directory (the flag, or `cwd` for `gemini`, `kimi` and `grok`) set to the repo's working tree, the task's worktree, or a spike's scratchpad. Never point them at a home directory or another project. Keep secrets out of their briefs. These flags never authorize pushing, publishing or deploying either — see *Trust boundaries* in `SKILL.md`.
 
 ## Sandbox / permission derivation by phase
 
