@@ -1,0 +1,8 @@
+<testsuites><testsuite name="vitest" tests="6">
+<testcase classname="test/leader.test.ts" name="takes the lock" time="0.000"/>
+<testcase classname="test/leader.test.ts" name="hands over" time="0.001"/>
+<testcase classname="test/math.test.ts" name="adds" time="0.000"/>
+<testcase classname="test/api.test.ts" name="creates order" time="0.212"/>
+<testcase classname="test/api.test.ts" name="rejects bad id" time="0.180"><failure message="expected 404"/></testcase>
+<testcase classname="test/api.test.ts" name="flaky one" time="0"><skipped/></testcase>
+</testsuite></testsuites>

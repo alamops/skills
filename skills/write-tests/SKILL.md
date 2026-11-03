@@ -53,14 +53,31 @@ Each brief carries:
 - **Don't mock the thing under test.** Mock at the boundaries you don't own (third-party APIs, the clock, randomness), not the logic you're verifying.
 - **Deterministic and isolated.** Seeded data, reset state between tests, fixed clocks. Never `sleep` to wait for something — wait for the condition (a readiness endpoint, an element, a response). A flaky test gets skipped within a month, and a skipped test guards nothing.
 - **E2e: critical paths only.** The feature's happy path plus at least one failure state a real user could plausibly hit, over the real stack — an e2e suite that only walks the happy path misses exactly the wiring bugs it exists for. E2e is the slowest, flakiest layer, so it covers what only it can catch rather than duplicating unit tests.
+- **The assembled flow, for each thing the feature produces.** At least one test drives the production entry point (the route, the job, the event handler, the CLI) and asserts that the output was produced. Calling the module's function directly doesn't count. A unit test on a function passes whether or not anything in production calls it. That's how code gets written, tested, reported done, and never run. If no entry point reaches the code, there's nothing to test: report it as a defect.
+- **Every variant.** When the change adds a union, enum, `kind` or message type, each member passes through the code that renders or handles it in at least one test. An untested variant is where a malformed request or a wrong endpoint ships.
+- **Trust boundaries get their negative paths.** Wherever input comes from something the system shouldn't trust (a client, a webhook sender, a worker, an outside contributor), test it through the real handler: bad signature, missing header, timestamp outside the window in both directions, malformed body, replay, oversize body, wrong owner, revoked or expired identity, reused token, and an approval for a version other than the current one. Adapter tests cover failures as well as 200s: 4xx, 5xx, timeouts, malformed bodies. Disable outside network so a missing mock fails instead of calling out.
+- **Reproduce the real mechanism.** A test named after a failure mode has to create that failure mode. For two processes, start two OS processes. Two instances inside one process share module state, which hides exactly the bug. For a crash, send SIGKILL; a graceful `close()` isn't a crash. For "survives a restart", actually restart. For a dependency outage, inject the outage. A gentler stand-in passes against the real bug.
+- **Never pass silently.** A test helper that quietly `return`s when `DATABASE_URL` or a service is missing turns every test behind it into a 0 ms pass. Skip loudly instead (`it.skipIf`, `ctx.skip()`, `pytest.skip`), and make CI fail when a required service is unreachable, for example with a global setup.
+- **Own your rows.** Tests create the data they need and touch only that data. Don't update every worker or cancel every pending job; that touches rows the test doesn't own in whatever database it's pointed at. The suite should pass when run twice in a row.
 
 ## 5. Run what you wrote — once
 
 Every new test gets run at least once before you report, with the narrowest command that runs it. A test file nobody has executed might not even load.
 
-- **It passes** → prove it can fail. For each behavior the change is about, break it on purpose in a scratch copy (flip the condition, drop the guard, return early, delete the route) and confirm the test covering it goes red. A test that stays green against broken code guards nothing, and this is the cheapest way to find out — it takes seconds per mutation and routinely catches assertions that only look like they check something.
+- **It passes** → prove it can fail. For each behavior the change is about, break it on purpose in a scratch copy (flip the condition, drop the guard, return early, delete the route) and confirm the test covering it goes red. A test that stays green against broken code guards nothing, and this is the cheapest way to find out — it takes seconds per mutation and routinely catches assertions that only look like they check something. Break the specific mechanism the test's name promises. A test called "delivers once after failures" should go red when the code delivers twice. The shapes that survive mutation are well known, so check for each one:
+  - **Already guaranteed elsewhere.** The test asserts something a unique index, type or constraint already guarantees.
+  - **Membership instead of legality.** It asserts that a state is in the set of known states, when what matters is that the transition was legal.
+  - **Setup sets the asserted field.** The setup already gives the field the value the test asserts.
+  - **A loop over a set that may be empty.** Assert the count before the loop.
+  - **The wrong subject.** It asserts on the row that was already committed, not the one the bug would have produced.
+  - **A matcher loose enough to match both candidates.**
+  - **Source text or SQL strings.** It asserts on the code's text instead of its behavior.
+  - **Built to always pass.** The test is constructed so the failure it names can't happen.
+  - **Sleep, then assert nothing happened.** Wait for a positive signal, then assert the absence.
 - **It fails because the test is wrong** (bad fixture, wrong selector, wrong assumption about setup) → fix the test.
 - **It fails because the product is wrong** → that's the test doing its job. Don't loosen the assertion, skip it, or delete it to get green, and don't fix product code here. Keep the failing test, and report the defect with the evidence (expected vs actual, the test that shows it). Driving it to green is `test-loop`'s job — or the user's call.
+
+Then run `python3 scripts/quality_gates.py hygiene --worktree` (`scripts/` sits next to this file; Python 3.9+, standard library only.) and fix every hit in the files you wrote: focused or skipped tests, sleeps, and silent early-return guards. If you produced a report from the run, also run `quality_gates.py suite <report> --scan-tests <test-dir>`, so new tests that "passed" in 0 ms get a second look.
 
 A full-suite run is out of scope here; if the new tests needed app startup, tear down whatever you started.
 

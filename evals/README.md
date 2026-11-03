@@ -94,3 +94,18 @@ rather than reaching for a delivery skill. When a positive scores low, check tha
 before blaming the description — and compare against a baseline arm, which
 controls for it. Negatives are far more robust to the mismatch, so this repo is a
 fine place to test *those*.
+
+## Quality-gates regression test
+
+`skills/code-review/scripts/quality_gates.py` is a pattern-based tool, and pattern tools drift: a regex tightened to cut noise quietly stops catching the thing it was written for. `quality-gates/` pins its behavior:
+
+- **`fixture/*.patch`** — a small service (base commit plus one feature commit) with planted defects: an exported-but-uncalled digest, unread config keys, a hard-coded config default, an unscoped `LIMIT 1` authorization lookup, a fail-open webhook secret, a `===` signature compare, a floating poll loop, an unguarded async interval, a silent test guard, a laptop path cited as the spec, and an env read outside config.
+- **`reports/`** — a red JUnit run (failure, skip, a 0 ms DB suite), a baseline with one more suite, and a clean run.
+- **`test_quality_gates.py`** — rebuilds the fixture repo in a temp dir with `git am`, runs `wiring`, `hygiene` and `suite`, and checks each planted lead is reported and the known false positives (helpers used only inside their own file, a `catch` whose body starts on the next line) stay quiet.
+
+```sh
+python3 evals/quality-gates/test_quality_gates.py
+```
+
+Run it after any change to the script's patterns, then `python3 tools/sync_shared_scripts.py` to copy the script into every skill that bundles it (`--check` exits non-zero if a copy drifted).
+

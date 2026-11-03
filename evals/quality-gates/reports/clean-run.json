@@ -1,0 +1,1 @@
+{"testResults":[{"name":"test/api.test.ts","assertionResults":[{"fullName":"x","status":"passed","duration":200},{"fullName":"y","status":"passed","duration":180}]}]}

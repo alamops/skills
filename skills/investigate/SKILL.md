@@ -44,9 +44,16 @@ Spawn the research agents **in a single message** so they run concurrently. Use 
 
 - **Codebase agent(s)** — entry points, data models, sibling code paths that already solve a similar problem, reusable utilities, API/UI patterns, test conventions, and the blast-radius surfaces for this change. One of them also captures two things later steps depend on:
   - **The runnability picture** — how the app starts locally (dev command, services, env vars, seed data), the test command per layer, and whether an e2e harness exists (framework, command, fixtures). Planning needs this to decide whether e2e coverage applies; test runs need it to boot the app.
-  - **The completeness inventory** — every caller of what's changing (including indirect ones: re-exports, barrels, dependency injection, dynamic dispatch, scripts and jobs outside the main source tree), every place a shape propagates (types, enums, validation, serializers, API contracts, client SDKs, fixtures, seed data, generated code), the existing data a migration would have to backfill, and the docs, config and examples that describe current behavior. The eventual plan is only as complete as this list, and enumerating it now is far cheaper than discovering it halfway through the build.
+  - **The completeness inventory** — every caller of what's changing (including indirect ones: re-exports, barrels, dependency injection, dynamic dispatch, scripts and jobs outside the main source tree), every place a shape propagates (types, enums, validation, serializers, API contracts, client SDKs, fixtures, seed data, generated code), the existing data a migration would have to backfill, and the docs, config and examples that describe current behavior. Also list the **entry points** new code would have to be wired into (route tables, job registries, the composition root, config loading), since code nobody wires in never runs. The eventual plan is only as complete as this list, and enumerating it now is far cheaper than discovering it halfway through the build.
+  - **Standards that apply** — the repo's own written rules. Look for CLAUDE.md / AGENTS.md / CONTRIBUTING, lessons-learned files, incident write-ups, ADRs, checklists and runbooks, a tech-debt register, and the layout and size limits of the closest sibling module. Return each rule that bears on this change, with its path. A plan that repeats a mistake the repo already wrote down is the cheapest defect to prevent and the most embarrassing to ship. A convention from somewhere else doesn't override this repo's layout.
+  - **Runtime & trust shape** — how it runs, and who can reach it. For how it runs: how many instances in steady state and during a deploy, whether there's a leader, which processes hold long-lived connections, what restarts what. For who can reach it: which parties send input (users by role, webhook senders, outside contributors, workers or agents running code the system didn't write), and which privileged actions each can reach. What the code and infra can't settle goes on the *must ask* list.
 - **Git-history agent** — how similar features were built here before, recent changes to the files in scope, prior migrations, reverted attempts (a revert is a lesson someone already paid for), `CHANGELOG`/PR conventions. Uses `git log`, `git log -S`, `git blame`, `git show`.
 - **Best-practices agent** — web research (when web tools are available) on current recommended patterns, library APIs, and version-specific gotchas for the technologies in play. Have it confirm live versions against what the repo pins rather than trusting memory — an API that changed between versions is exactly the kind of false premise this step exists to catch.
+
+Two checks belong to whichever agent is closest, or to you:
+
+- **Where the contract lives.** Find the spec, PRD or ticket the change follows. If it lives outside the repo — a file on someone's machine, a chat or artifact link, a ticket with no text — say so in the brief. The plan will need it in the repo, because a reviewer can't check code against a document they can't open. Cite everything by repo-relative path. Never cite an absolute local path.
+- **Live facts, read-only.** When a premise is about how an external system behaves, check it with a read-only query rather than trusting the docs or memory. Examples: the claim format a CI provider's identity token sends for this repo, whether an environment, branch, workflow or secret path exists, what a managed service exposes at the pinned version, an account limit. Use `gh api …`, a cloud CLI's `describe` or `list`, or `git ls-remote`. Never apply, deploy or write anything. Record the command and its output as evidence.
 
 ### Writing each brief
 
@@ -102,7 +109,10 @@ Save to `docs/plans/<slug>-investigation.md` (create the folder if missing; suff
 | Flags | <--no-spikes, or "none"> |
 
 ## 1. What we know
-<facts, each with a file:line anchor or a source link>
+<facts, each with a file:line anchor or a source link; live facts with the read-only command that checked them>
+- Contract: <repo path of the spec/PRD — or "outside the repo: <where>", flagged for the plan>
+- Standards that apply: <rule → path:line>
+- Runtime & trust shape: <instances, deploys, leader, long-lived connections; parties that send input and the privileged actions they reach>
 
 ## 2. What we proved
 | Question | Verdict | Evidence (command → output / measurement) | Versions | Artifact |
@@ -115,6 +125,7 @@ Save to `docs/plans/<slug>-investigation.md` (create the folder if missing; suff
 
 ## 5. Completeness inventory
 - Callers (direct and indirect): <file:line list>
+- Entry points new code must be wired into: <route tables, job registries, composition root, config loading>
 - Propagation surface: <types, enums, validation, serializers, contracts, SDKs, fixtures, seed data, generated code>
 - Existing data a migration would have to backfill: <tables/rows/files, with volumes if known>
 - Docs / config / examples that describe current behavior: <paths>

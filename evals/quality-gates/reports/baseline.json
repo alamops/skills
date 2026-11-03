@@ -1,0 +1,4 @@
+{"testResults":[{"name":"test/leader.test.ts","assertionResults":[{"fullName":"a","status":"passed","duration":40},{"fullName":"b","status":"passed","duration":55}]},
+{"name":"test/math.test.ts","assertionResults":[{"fullName":"adds","status":"passed","duration":0}]},
+{"name":"test/api.test.ts","assertionResults":[{"fullName":"x","status":"passed","duration":200},{"fullName":"y","status":"passed","duration":180},{"fullName":"z","status":"passed","duration":100}]},
+{"name":"test/outbox.test.ts","assertionResults":[{"fullName":"o","status":"passed","duration":90}]}]}
