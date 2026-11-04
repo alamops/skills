@@ -109,3 +109,10 @@ python3 evals/quality-gates/test_quality_gates.py
 
 Run it after any change to the script's patterns, then `python3 tools/sync_shared_scripts.py` to copy the script into every skill that bundles it (`--check` exits non-zero if a copy drifted).
 
+## Decision form
+
+`decision-form/test_decision_form.mjs` covers `skills/grill/scripts/decision_form.mjs`, the script behind the grill's browser form: spec validation, the served form's token/host/origin guards, uploads (path traversal, size limits, cleanup), submit validation, the offline `build` (script-tag escaping) and `import`, and that `implement`'s copy matches. Node 18+, no dependencies:
+
+```sh
+node --test evals/decision-form/test_decision_form.mjs
+```

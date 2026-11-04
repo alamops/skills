@@ -13,7 +13,7 @@ This matters because the assumptions that wreck a build are the ones nobody noti
 
 This is Phase 2 of the `implement` delivery loop, packaged to run on its own. It reads an `investigate` brief when one exists, and its decision record is what `write-plan` builds on. None of those need to exist for this skill to work.
 
-Read-only: the only file you write is the decision record.
+Read-only on source: you write only the decision record and the decision form's round folders next to it (§3).
 
 ## 1. Ground yourself before asking anything
 
@@ -48,13 +48,21 @@ Pull every open question from the grounding, then work through these topics. Not
 
 ## 3. How to ask
 
-- **One or two structured passes, grouped by topic.** Use your question tool if you have one. Don't drip questions one at a time; the owner should be able to answer in one sitting.
-- **Make answering cheap.** Where there's a sensible default, offer concrete options with a recommendation and a one-line reason, so the owner can confirm instead of compose. A question with an obvious answer and no recommendation is a chore.
+- **Ask through the decision form, not a chat question tool.** Each pass is a local web page that shows every question with what the owner needs to decide it: your evidence (file:line and the exact lines), the options and what each does to the plan, your recommendation and why, and which questions are one-way doors. The owner answers by choice, multi-choice, ranking, text, numbers, confirm-or-override, or file upload, and you get back `answers.json`. The loop, per round:
+  1. Write `docs/plans/<slug>-grill/round-1/questions.json`, starting from `assets/decision-form/example.questions.json`.
+  2. Run `node scripts/decision_form.mjs validate <round-dir>`, then `node scripts/decision_form.mjs serve <round-dir>` in the background. The script is in this skill's directory.
+  3. Give the owner the URL it prints, then wait for the submit.
+  4. Read `<round-dir>/answers.json`.
+
+  `references/decision-form.md` has the rest: how to wait on each kind of harness, how each grill rule maps to a field, how answers map to the record, and the fallbacks when no browser can reach the page. Fall back to the question tool or chat only when the form can't reach the owner, or when they ask for chat.
+- **One or two passes, grouped by topic.** One form per pass, with sections by topic. Don't drip questions one at a time; the owner should be able to answer in one sitting. A second pass exists to push back (below), not to ask what you forgot to put in the first.
+- **Make answering cheap.** Where there's a sensible default, offer concrete options with a recommendation and a one-line reason, so the owner can confirm instead of compose. A question with an obvious answer and no recommendation is a chore. Give each option its consequence, and give each question the evidence, so the owner decides from the code rather than from your summary of it.
 - **Order by consequence, and keep it answerable in one sitting.** Lead with the blocking questions — the ones whose answer changes the plan's shape. Collapse the low-stakes items where you'd bet on your default into a compact *confirm or override* list at the end, one line each with the default stated. If the pass runs past roughly ten real questions, move more into that list; a wall of fourteen questions with sub-questions gets skimmed, and a skimmed grill is barely better than none.
 - **Lead with what you proved.** Where the investigation or your own reading settled something, state it instead of asking — "the export runs in 4.2s over 50k rows, so no background job" shows the question is closed and respects their time.
 - **Contradictions are your sharpest questions.** If evidence contradicts what the ticket, the docs, or the owner believe, put the evidence in front of them and ask how to proceed. A false premise the owner still holds is exactly what derails a plan.
-- **Push back on vague answers.** "Make it fast" → "what P95 is acceptable, at what data volume?" "Handle errors gracefully" → "for a failed payment specifically: retry, show a message, or both — and what does the message say?" A vague answer is an unresolved question wearing a disguise.
-- **If the owner says "you have enough, just go"**, stop asking — but record every remaining assumption explicitly in the decision record, so the plan builds on stated assumptions rather than silent ones. A skipped question gets the same treatment `--auto` gives it (§5): answer the ordinary ones from the strongest source, taking the reversible option. A skipped **one-way door** is different: trust boundaries, auth, destructive data changes, public contracts, money. Don't answer it on the owner's behalf. Record it as **unratified**, with the narrowest safe default the plan will use, at the top of the record. That way it travels into the plan and the PR body, where a reviewer can ratify it. If the owner skipped everything, say so in the record's header: every decision below it is your judgment, and the reader needs to know that first.
+- **Push back on vague answers.** "Make it fast" → "what P95 is acceptable, at what data volume?" "Handle errors gracefully" → "for a failed payment specifically: retry, show a message, or both — and what does the message say?" A vague answer is an unresolved question wearing a disguise. So is an override that contradicts your evidence, or a note that adds a condition. Each one goes in the round-2 form, quoting the round-1 answer.
+- **A skipped question is not an answer, and the grill isn't finished while one is open.** Skipping in the form means "not now", never "you decide". Every required question the owner skipped or left blank goes back to them: `answers.json` lists them in `summary.needsAnswer` with `summary.complete: false`, and `node scripts/decision_form.mjs reask <round-dir>` builds the next round from exactly those (a skipped question comes back with the follow-ups it hid). Serve it, and repeat until `complete` is true. Never fill a skipped question in yourself, never record it as decided, and never hand the record to `write-plan` while `needsAnswer` is non-empty. Skipping an optional question (`required: false`) is fine. If the owner seems stuck on one, help them decide: sharpen the options, add evidence, or name who should answer. Don't take it off their hands.
+- **The one way out is the owner saying so in their own words.** If they tell you, in chat, to stop asking ("you have enough, just go", "decide the rest yourself"), stop, and quote them in the record. A skip button is not that instruction. Then the remaining questions become stated assumptions, the way `--auto` treats them (§5): answer the ordinary ones from the strongest source, taking the reversible option. A **one-way door** is different: trust boundaries, auth, destructive data changes, public contracts, money. Don't answer it on the owner's behalf even then. Record it as **unratified**, with the narrowest safe default the plan will use, at the top of the record, so it travels into the plan and the PR body where a reviewer can ratify it. If the owner delegated everything, say so in the record's header: every decision below it is your judgment, and the reader needs to know that first.
 - **Never record your own decision as the owner's.** "Approved by owner" means a human answered. When the build is going to change a spec's required behavior, note each amendment, with a one-line reason, for a human to approve. Don't mark it decided.
 
 ## 4. Completeness dispositions
@@ -75,7 +83,7 @@ The test that separates *in* from *out*: if this shipped as-is, would a reviewer
 
 Run unattended only when it's declared: `--auto` on the invocation, the user saying in plain words that no one will answer ("just decide, I'm offline"), or you genuinely having no channel to a human. A detailed ticket, a confident read of the task, or being spawned by another agent are not signs the owner left. If you can ask, ask.
 
-Under `--auto` you play both roles, and the order matters:
+Under `--auto` you play both roles, and the order matters. There's no form to serve, because nobody would open it:
 
 1. **Draft the full question set first** — the same structured pass you'd have sent the owner, edge cases and non-goals included. The value is mostly in *generating* the questions, and writing them before answering keeps them coming from the topic list rather than from the answer you already had in mind.
 2. **Answer each from the strongest source available, and name it**: investigation evidence (spike verdict, file:line) → the repo's own conventions and how sibling features decided this → the ecosystem or library default → your judgment. An answer from the codebase is a finding; an answer from judgment is a guess, and the record should let a reader tell them apart at a glance.
@@ -86,7 +94,7 @@ Under `--auto` you play both roles, and the order matters:
 
 ## 6. Write the decision record
 
-Save to `docs/plans/<slug>-grill.md`, reusing the slug of an existing investigation brief if there is one (create the folder if missing; suffix `-YYYY-MM-DD` rather than overwrite an unrelated record):
+Save to `docs/plans/<slug>-grill.md`, reusing the slug of an existing investigation brief if there is one (create the folder if missing; suffix `-YYYY-MM-DD` rather than overwrite an unrelated record). It sits next to `docs/plans/<slug>-grill/`, the round folders that hold what the owner was shown and what they answered. Commit them together. Check `uploads/` before you do (see the reference's *What gets committed*):
 
 ```markdown
 # Grill — <feature>
@@ -94,16 +102,17 @@ Save to `docs/plans/<slug>-grill.md`, reusing the slug of an existing investigat
 | --- | --- |
 | Date | <YYYY-MM-DD> |
 | Source | <ticket / PRD path / investigation brief / conversation> |
-| Mode | <interactive, answered by <owner>> or <interactive, owner skipped N of M questions> or <--auto, self-answered> |
+| Mode | <interactive via decision form, answered by <owner> in N rounds> or <interactive via decision form; owner delegated N of M questions in their own words: "<quote>"> or <interactive (chat): why the form wasn't used> or <--auto, self-answered> |
+| Answers | <docs/plans/<slug>-grill/round-1/answers.json (+ round-2/…), or "none (chat / --auto)"> |
 | Flags | <--auto --no-follow-ups --no-e2e, or "none"> |
 | Spec | <repo path, or "outside the repo: <where>" — to be committed before planning> |
 
-## One-way doors awaiting a human   (under --auto, or questions the owner skipped; marked unratified; omit if none)
+## One-way doors awaiting a human   (under --auto, or after the owner told you to stop asking; marked unratified; omit if none)
 
 ## Decisions
 | # | Topic | Question | Answer | Source | Confidence |
-<Source: owner / evidence (file:line or spike) / repo convention / ecosystem default / judgment.
- Confidence column under --auto, and for any question the owner skipped.>
+<Source: owner (round-N/answers.json#<question-id>; say "accepted recommendation" when it was) / evidence (file:line or spike) / repo convention / ecosystem default / judgment.
+ Confidence column under --auto, and for any question the owner explicitly delegated.>
 
 ## Completeness dispositions
 | Item | Disposition | Owner or reason |

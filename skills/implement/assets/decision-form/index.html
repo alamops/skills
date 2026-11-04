@@ -1,0 +1,1309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Decision form</title>
+<!--
+  Decision form: renders an agent's questions.json with the context to decide each
+  question, and returns the owner's answers as JSON. Self-contained on purpose: no CDN,
+  no build step, works served by scripts/decision_form.mjs or opened from disk after
+  `decision_form.mjs build` inlined the questions into the tag below.
+-->
+<style>
+:root {
+  --bg: #f5f4f0; --panel: #ffffff; --panel-2: #faf9f6; --ink: #1c1c21; --muted: #5f5f69; --faint: #8b8b94;
+  --line: #e4e2dc; --line-2: #d4d1c9; --accent: #3554d1; --accent-ink: #ffffff; --accent-weak: #e9edfb;
+  --ok: #1d7a4c; --ok-weak: #e2f3ea; --warn: #9a5800; --warn-weak: #fbf0dd; --danger: #b42318; --danger-weak: #fdebe8;
+  --owd: #8a2be2; --owd-weak: #f3e9fd; --code-bg: #f1f0ec;
+  --shadow: 0 1px 2px rgba(20, 20, 30, .05), 0 6px 20px rgba(20, 20, 30, .05);
+  --radius: 12px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111215; --panel: #1a1b20; --panel-2: #16171b; --ink: #ececf1; --muted: #a6a7b2; --faint: #7c7d88;
+    --line: #2b2c33; --line-2: #3a3b44; --accent: #8ea4ff; --accent-ink: #0e1222; --accent-weak: #222a48;
+    --ok: #5fcf97; --ok-weak: #15301f; --warn: #f0b660; --warn-weak: #33260f; --danger: #ff8a7a; --danger-weak: #3a1814;
+    --owd: #c79bff; --owd-weak: #2b1d3d; --code-bg: #14151a; --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+code, pre { font-family: var(--mono); font-size: 13px; }
+:not(pre) > code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+
+/* top bar */
+.bar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.bar-in { max-width: 1240px; margin: 0 auto; padding: 10px 20px; display: flex; gap: 14px; align-items: center; }
+.bar-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+.progress { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; color: var(--muted); font-size: 13px; }
+.meter { width: 140px; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.meter > i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .25s ease; }
+.btn { appearance: none; border: 1px solid var(--line-2); background: var(--panel); border-radius: 9px; padding: 7px 12px; cursor: pointer; font-weight: 500; font-size: 14px; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, .opt:focus-within, .link:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.small { padding: 4px 9px; font-size: 13px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.link { appearance: none; background: none; border: 0; padding: 2px 0; color: var(--muted); cursor: pointer; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+.link:hover { color: var(--ink); }
+
+/* layout */
+.wrap { max-width: 1240px; margin: 0 auto; padding: 24px 20px 120px; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 32px; }
+nav.side { position: sticky; top: 68px; align-self: start; max-height: calc(100vh - 88px); overflow: auto; padding-right: 4px; font-size: 13px; }
+.side h4 { margin: 16px 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.side a { display: flex; gap: 8px; align-items: baseline; padding: 4px 8px; border-radius: 7px; color: var(--muted); text-decoration: none; }
+.side a:hover { background: var(--panel); color: var(--ink); }
+.side a .dot { flex: 0 0 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--line-2); transform: translateY(1px); }
+.side a[data-status="answered"] .dot { background: var(--ok); border-color: var(--ok); }
+.side a[data-status="skipped"] .dot { background: var(--warn); border-color: var(--warn); }
+.side a[data-status="invalid"] .dot { border-color: var(--danger); }
+.side a .t { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.side a .n { color: var(--faint); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+main { min-width: 0; }
+
+/* hero */
+.hero { margin-bottom: 22px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line-2); color: var(--muted); background: var(--panel); }
+.chip.mono { font-family: var(--mono); }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -.01em; }
+.lede { color: var(--ink); max-width: 75ch; }
+.save-note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+.who { display: flex; gap: 10px; align-items: center; margin-top: 14px; font-size: 14px; color: var(--muted); flex-wrap: wrap; }
+.who input { width: 240px; max-width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+
+/* cards */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 22px; margin-bottom: 16px; }
+.banner { border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--accent-weak); }
+.banner.err { background: var(--danger-weak); color: var(--danger); white-space: pre-line; display: block; }
+.banner.warn { background: var(--warn-weak); color: var(--warn); }
+.hero-accept { display: none; margin-top: 14px; }
+.progress .short { display: none; }
+.proven summary { cursor: pointer; font-weight: 600; }
+.proven ul { margin: 12px 0 0; padding-left: 20px; }
+.proven li { margin-bottom: 8px; }
+.section-head { margin: 34px 0 12px; display: flex; align-items: baseline; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+.section-head h2 { font-size: 19px; margin: 0; }
+.section-intro { color: var(--muted); margin: -4px 0 14px; max-width: 75ch; }
+.q { scroll-margin-top: 76px; border-left: 3px solid transparent; transition: border-color .2s; }
+.q[data-status="answered"] { border-left-color: var(--ok); }
+.q[data-status="skipped"] { border-left-color: var(--warn); }
+.q[data-status="invalid"] { border-left-color: var(--danger); }
+.q.flash { animation: flash 1.2s ease; }
+@keyframes flash { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
+.q-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.qn { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-right: 2px; }
+.tag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; letter-spacing: .01em; }
+.tag-blocking { background: var(--danger-weak); color: var(--danger); }
+.tag-shape { background: var(--warn-weak); color: var(--warn); }
+.tag-minor { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.tag-owd { background: var(--owd-weak); color: var(--owd); }
+.tag-rec { background: var(--accent-weak); color: var(--accent); }
+.status { margin-left: auto; font-size: 12px; color: var(--faint); }
+.q[data-status="answered"] .status { color: var(--ok); }
+.q[data-status="skipped"] .status { color: var(--warn); }
+.q[data-status="invalid"] .status { color: var(--danger); }
+.q[data-status="optional"] .status { color: var(--faint); font-style: italic; }
+.q h3 { font-size: 17px; line-height: 1.35; margin: 0 0 6px; }
+.why { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
+.why b { color: var(--ink); font-weight: 600; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 10px; } .md ul, .md ol { margin: 0 0 10px; padding-left: 22px; } .md li { margin: 2px 0; }
+.md h4, .md h5, .md h6 { margin: 14px 0 6px; font-size: 14px; }
+.md blockquote { margin: 0 0 10px; padding: 4px 12px; border-left: 3px solid var(--line-2); color: var(--muted); }
+.tbl { overflow-x: auto; margin: 0 0 10px; }
+.md table { border-collapse: collapse; font-size: 13.5px; }
+.md th, .md td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md th { background: var(--panel-2); }
+.context { margin-bottom: 14px; max-width: 80ch; }
+pre.code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 0 0 10px; line-height: 1.5; }
+pre.code .ln { display: inline-block; width: 3.2em; color: var(--faint); user-select: none; text-align: right; padding-right: 1em; }
+
+details.evidence { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+details.evidence > summary { cursor: pointer; padding: 8px 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+details.evidence[open] > summary { border-bottom: 1px solid var(--line); }
+.ev-list { padding: 10px 12px 2px; }
+.ev { margin-bottom: 10px; }
+.ev-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 13px; margin-bottom: 5px; }
+.ev-head .lbl { color: var(--ink); }
+.ev-note { font-size: 13px; color: var(--muted); margin: -4px 0 8px; }
+
+/* answers */
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.choices { display: grid; gap: 8px; }
+.opt { display: flex; gap: 12px; align-items: flex-start; padding: 11px 14px; border: 1px solid var(--line-2); border-radius: 10px; cursor: pointer; background: var(--panel); transition: border-color .15s, background .15s; }
+.opt:hover { border-color: var(--accent); }
+.opt.is-rec { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, var(--line-2)); }
+.opt:has(input:checked) { border: 1px solid var(--accent); background: var(--accent-weak); }
+.opt input[type=radio], .opt input[type=checkbox] { margin: 3px 0 0; flex: 0 0 auto; accent-color: var(--accent); width: 16px; height: 16px; }
+.opt-body { flex: 1 1 auto; min-width: 0; display: block; }
+.opt-label { font-weight: 600; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.opt-desc { color: var(--muted); font-size: 14px; margin-top: 3px; }
+.opt-cons { font-size: 13.5px; margin-top: 5px; color: var(--ink); }
+.opt-cons .arrow { color: var(--faint); }
+.opt-preview { margin-top: 8px; margin-bottom: 0; font-size: 12.5px; }
+.opt.other { align-items: center; }
+.other-text { flex: 1 1 auto; }
+input[type=text], input[type=number], textarea { width: 100%; border: 1px solid var(--line-2); border-radius: 9px; padding: 8px 11px; background: var(--panel); }
+input[type=text]:focus, input[type=number]:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+textarea { resize: vertical; min-height: 44px; line-height: 1.5; }
+.num { display: flex; gap: 10px; align-items: center; }
+.num input { max-width: 220px; }
+.num .unit { color: var(--muted); }
+.hint { font-size: 12.5px; color: var(--faint); margin-top: 6px; }
+.err-text { font-size: 13px; color: var(--danger); margin-top: 8px; }
+.suggest { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 14px; padding: 9px 12px; border-radius: 9px; background: var(--accent-weak); }
+.suggest .lbl { font-weight: 600; color: var(--accent); }
+.suggest .val { flex: 1 1 260px; min-width: 0; }
+.rec-why { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+.rec-why b { color: var(--accent); }
+.confirm-box { border: 1px solid var(--line-2); border-radius: 10px; padding: 12px 14px; background: var(--panel-2); }
+.confirm-box .def { margin-bottom: 10px; }
+.confirm-box .def .lbl { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); display: block; margin-bottom: 3px; }
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; }
+.seg button { appearance: none; border: 0; background: var(--panel); padding: 6px 13px; cursor: pointer; font-size: 14px; }
+.seg button + button { border-left: 1px solid var(--line-2); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.confirm-box textarea { margin-top: 10px; }
+ol.rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+ol.rank li { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 10px 8px 14px; background: var(--panel); }
+ol.rank .pos { font-family: var(--mono); color: var(--faint); width: 1.6em; }
+ol.rank .body { flex: 1 1 auto; min-width: 0; }
+ol.rank .body .d { color: var(--muted); font-size: 13.5px; }
+ol.rank .mv { display: flex; gap: 4px; }
+.rank-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.drop { border: 1.5px dashed var(--line-2); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); background: var(--panel-2); transition: border-color .15s, background .15s; }
+.drop.over { border-color: var(--accent); background: var(--accent-weak); }
+.files { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
+.files li { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+.files .nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files .sz { color: var(--faint); font-size: 12.5px; }
+.files .bad { color: var(--danger); font-size: 12.5px; }
+.files img { width: 36px; height: 36px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); }
+.q-foot { display: flex; gap: 18px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); flex-wrap: wrap; }
+.note-box, .skip-box { margin-top: 10px; }
+.skip-box { padding: 10px 12px; border-radius: 9px; background: var(--warn-weak); font-size: 14px; }
+.skip-box.owd { background: var(--owd-weak); }
+.skip-box p { margin: 0 0 8px; }
+.skip-box input { background: var(--panel); }
+.q.is-skipped .answer { opacity: .55; }
+
+/* footer + dialog */
+.end { display: flex; gap: 12px; justify-content: flex-end; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+dialog { border: 1px solid var(--line); border-radius: 14px; padding: 0; background: var(--panel); color: var(--ink); width: min(620px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+dialog::backdrop { background: rgba(10, 10, 20, .45); }
+.dlg { padding: 22px 24px; }
+.dlg h2 { margin: 0 0 8px; font-size: 19px; }
+.dlg ul { padding-left: 20px; margin: 6px 0 14px; max-height: 220px; overflow: auto; }
+.dlg .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
+.stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }
+.stat { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); font-size: 13px; }
+.stat b { font-variant-numeric: tabular-nums; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-size: 14px; z-index: 50; box-shadow: var(--shadow); }
+.done { max-width: 680px; margin: 60px auto; padding: 0 16px; }
+.done .card { padding: 28px; }
+.done .tick { width: 44px; height: 44px; border-radius: 50%; background: var(--ok-weak); color: var(--ok); display: grid; place-items: center; font-size: 24px; margin-bottom: 12px; }
+.done textarea { font-family: var(--mono); font-size: 12px; height: 220px; margin-top: 12px; }
+.loading { text-align: center; margin-top: 30vh; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .wrap { grid-template-columns: 1fr; padding: 16px 16px 100px; gap: 0; }
+  nav.side { display: none; }
+  .bar-in { padding: 8px 16px; gap: 8px; }
+  .bar-title, .bar .accept-all { display: none; }
+  .hero-accept { display: inline-flex; }
+  .progress { flex: 1 1 auto; min-width: 0; font-size: 12px; }
+  .progress .long { display: none; }
+  .progress .short { display: inline; }
+  .meter { width: 56px; }
+  .btn { padding: 6px 10px; font-size: 13px; }
+  .q { scroll-margin-top: 64px; }
+  h1 { font-size: 23px; }
+  .card { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="app"><p class="loading">Loading questions…</p></div>
+<script id="form-spec" type="application/json"></script>
+<script>
+(() => {
+  'use strict';
+
+  const IMPACT = { blocking: ['Blocking', 'tag-blocking'], shape: ['Shapes the plan', 'tag-shape'], minor: ['Minor', 'tag-minor'] };
+  const STATUS_TEXT = { answered: 'Answered', skipped: 'Skipped', unanswered: 'Not answered yet', invalid: 'Needs a fix', optional: 'Optional' };
+  const CHOICE = new Set(['single', 'multi', 'rank']);
+  const TYPES = ['single', 'multi', 'text', 'longtext', 'number', 'confirm', 'rank', 'upload'];
+  // Placeholder character for the markdown renderer; the input is stripped of it first,
+  // so spec text can never forge one.
+  const PH = String.fromCharCode(1);
+  const PH_RE = new RegExp(`${PH}(\\d+)${PH}`, 'g');
+
+  let spec = null;
+  let mode = 'served';
+  let token = '';
+  let info = {};
+  let specSha256 = null;
+  const st = {};
+  const order = [];
+  const byId = new Map();
+  const nodes = { acceptAll: [] };
+  const meta = { answeredBy: '', generalNotes: '' };
+  let metaRestored = false;
+  let draftKey = '';
+  let saveTimer = 0;
+  let submitted = false;
+  const warned = { lite: false, none: false };
+
+  // ------------------------------------------------------------ DOM + markdown
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  const plain = (s) => String(s).replace(/[`*]/g, '');
+
+  function h(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === 'class') e.className = v;
+      else if (k === 'html') e.innerHTML = v; // only ever given md()/mdInline()/link() output, which escapes its input
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of kids.flat(Infinity)) if (c !== null && c !== undefined && c !== false) e.append(c.nodeType ? c : String(c));
+    return e;
+  }
+
+  // url is raw (escaped here); inner is already-escaped HTML.
+  const link = (u, inner) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+  const safeUrl = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
+
+  // bold/italic on text that is already escaped
+  const fmt = (s) => s
+    .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*([^*\s][^*\n]*?)\*(?![*\w])/g, '$1<em>$2</em>');
+
+  function mdInline(src) {
+    const slots = [];
+    const keep = (html) => { slots.push(html); return `${PH}${slots.length - 1}${PH}`; };
+    let s = String(src).split(PH).join('');
+    s = s.replace(/`([^`\n]+)`/g, (_, c) => keep(`<code>${esc(c)}</code>`));
+    // [text](url), allowing one level of parentheses inside the URL
+    s = s.replace(/\[([^\]\n]+)\]\(((?:[^\s()]|\([^\s()]*\))+)\)/g, (m, t, u) => (safeUrl(u) ? keep(link(u, fmt(esc(t)))) : m));
+    s = s.replace(/(^|[\s(])(https?:\/\/[^\s<>()]*[^\s<>().,;:!?'"])/g, (_, pre, u) => pre + keep(link(u, esc(u))));
+    s = fmt(esc(s));
+    // Slots can hold slots (a code span inside link text), so resolve until none are left.
+    for (let i = 0; i < 4 && s.includes(PH); i += 1) s = s.replace(PH_RE, (_, n) => slots[Number(n)]);
+    return s;
+  }
+
+  // Split a table row on "|", except inside `code`.
+  function tableRow(line) {
+    const t = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+    const cells = [];
+    let cur = '';
+    let code = false;
+    for (const ch of t) {
+      if (ch === '`') code = !code;
+      if (ch === '|' && !code) { cells.push(cur.trim()); cur = ''; } else cur += ch;
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  const LIST_RE = /^\s*([-*+]|\d+[.)])\s+/;
+  function md(src) {
+    if (!src) return '';
+    const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+    const out = [];
+    const para = [];
+    const flush = () => { if (para.length) { out.push(`<p>${mdInline(para.join(' '))}</p>`); para.length = 0; } };
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      let m;
+      if ((m = line.match(/^\s*(```+|~~~+)\s*([\w+#.-]*)\s*$/))) {
+        flush();
+        const fence = m[1];
+        const buf = [];
+        i += 1;
+        while (i < lines.length && !lines[i].trim().startsWith(fence)) buf.push(lines[i++]);
+        i += 1;
+        out.push(`<pre class="code"><code>${esc(buf.join('\n'))}</code></pre>`);
+        continue;
+      }
+      if (!line.trim()) { flush(); i += 1; continue; }
+      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+        flush();
+        const lv = Math.min(6, m[1].length + 3);
+        out.push(`<h${lv}>${mdInline(m[2])}</h${lv}>`);
+        i += 1;
+        continue;
+      }
+      if (/^\s*>/.test(line)) {
+        flush();
+        const buf = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
+        out.push(`<blockquote>${md(buf.join('\n'))}</blockquote>`);
+        continue;
+      }
+      if (LIST_RE.test(line)) {
+        flush();
+        const tag = /^\s*\d/.test(line) ? 'ol' : 'ul';
+        const items = [];
+        while (i < lines.length && LIST_RE.test(lines[i])) {
+          let item = lines[i++].replace(LIST_RE, '');
+          while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !LIST_RE.test(lines[i])) item += ` ${lines[i++].trim()}`;
+          items.push(`<li>${mdInline(item)}</li>`);
+        }
+        out.push(`<${tag}>${items.join('')}</${tag}>`);
+        continue;
+      }
+      if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
+        flush();
+        const head = tableRow(line);
+        i += 2;
+        const body = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) body.push(tableRow(lines[i++]));
+        out.push(`<div class="tbl"><table><thead><tr>${head.map((c) => `<th>${mdInline(c)}</th>`).join('')}</tr></thead><tbody>${
+          body.map((r) => `<tr>${r.map((c) => `<td>${mdInline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+        continue;
+      }
+      para.push(line.trim());
+      i += 1;
+    }
+    flush();
+    return out.join('');
+  }
+
+  function codeBlock(code, start) {
+    const pre = h('pre', { class: 'code' });
+    const c = h('code');
+    String(code).replace(/\n$/, '').split('\n').forEach((ln, idx, all) => {
+      if (start) c.append(h('span', { class: 'ln' }, String(start + idx)));
+      c.append(ln + (idx < all.length - 1 ? '\n' : ''));
+    });
+    pre.append(c);
+    return pre;
+  }
+
+  function toast(msg, ms = 2800) {
+    const t = h('div', { class: 'toast', role: 'status' }, msg);
+    document.body.append(t);
+    setTimeout(() => t.remove(), ms);
+  }
+
+  const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+  const qLabel = (q) => `Q${order.indexOf(q) + 1}`;
+  const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+
+  // ------------------------------------------------------------ state
+
+  function blank(q) {
+    const base = { note: '', noteOpen: false, skipped: false, reason: '' };
+    switch (q.type) {
+      case 'single': return { ...base, value: null, otherOn: false, other: '' };
+      case 'multi': return { ...base, value: [], otherOn: false, other: '' };
+      case 'rank': return { ...base, value: q.options.map((o) => o.id), touched: false };
+      case 'confirm': return { ...base, mode: null, value: '' };
+      case 'upload': return { ...base, files: [] };
+      default: return { ...base, value: '' };
+    }
+  }
+
+  // Must agree with isVisible() in decision_form.mjs: a follow-up shows only while its
+  // parent is answered (valid, not skipped) with one of the listed options.
+  function visible(q) {
+    if (!q.showIf) return true;
+    const dep = byId.get(q.showIf.question);
+    if (!dep || statusOf(dep) !== 'answered') return false;
+    const d = st[dep.id];
+    const vals = dep.type === 'single' ? (d.otherOn ? [] : [d.value]) : d.value;
+    return vals.some((v) => q.showIf.in.includes(v));
+  }
+
+  const OK = { ok: true };
+  const NO = { ok: false };
+  function check(q) {
+    const s = st[q.id];
+    switch (q.type) {
+      case 'single':
+        if (s.otherOn) return s.other.trim() ? OK : { ok: false, error: 'Describe your other answer.' };
+        return s.value !== null ? OK : NO;
+      case 'multi': {
+        if (s.otherOn && !s.other.trim()) return { ok: false, error: 'Describe your other answer, or untick it.' };
+        const n = s.value.length + (s.otherOn ? 1 : 0);
+        if (!n) return NO;
+        if (Number.isInteger(q.min) && n < q.min) return { ok: false, error: `Pick at least ${q.min}.` };
+        if (Number.isInteger(q.max) && n > q.max) return { ok: false, error: `Pick at most ${q.max}.` };
+        return OK;
+      }
+      case 'number': {
+        if (String(s.value).trim() === '') return NO;
+        const v = Number(s.value);
+        if (!Number.isFinite(v)) return { ok: false, error: 'Enter a number.' };
+        if (typeof q.min === 'number' && v < q.min) return { ok: false, error: `Must be at least ${q.min}.` };
+        if (typeof q.max === 'number' && v > q.max) return { ok: false, error: `Must be at most ${q.max}.` };
+        return OK;
+      }
+      case 'confirm':
+        if (s.mode === 'confirm') return OK;
+        if (s.mode === 'override') return s.value.trim() ? OK : { ok: false, error: 'Write what it should be instead.' };
+        return NO;
+      case 'rank': return s.touched ? OK : NO;
+      case 'upload':
+        if (s.files.some((f) => f.busy)) return { ok: false, error: 'Upload in progress…' };
+        if (s.files.some((f) => f.error)) return { ok: false, error: 'Remove the files that failed.' };
+        return s.files.length ? OK : NO;
+      default: return s.value.trim() ? OK : NO;
+    }
+  }
+
+  function statusOf(q) {
+    if (!visible(q)) return 'not_applicable';
+    if (st[q.id].skipped) return 'skipped';
+    const c = check(q);
+    if (c.ok) return 'answered';
+    return c.error ? 'invalid' : 'unanswered';
+  }
+
+  // What the page shows: a blank optional question isn't "open".
+  function viewStatus(q) {
+    const s = statusOf(q);
+    return s === 'unanswered' && q.required === false ? 'optional' : s;
+  }
+  const isOpen = (q) => ['unanswered', 'invalid'].includes(viewStatus(q));
+
+  function answerFor(q) {
+    const s = st[q.id];
+    const status = statusOf(q);
+    const a = { status: status === 'invalid' ? 'unanswered' : status };
+    if (s.note.trim() && status !== 'not_applicable') a.note = s.note.trim();
+    if (status === 'skipped' && s.reason.trim()) a.reason = s.reason.trim();
+    if (status !== 'answered') return a;
+    switch (q.type) {
+      case 'single': a.value = s.otherOn ? null : s.value; if (s.otherOn) a.other = s.other.trim(); break;
+      case 'multi': a.value = s.value.slice(); if (s.otherOn) a.other = s.other.trim(); break;
+      case 'number': a.value = Number(s.value); break;
+      case 'confirm': a.value = s.mode === 'confirm' ? q.recommendation.value : s.value.trim(); break;
+      case 'rank': a.value = s.value.slice(); break;
+      case 'upload':
+        a.value = s.files.map((f) => (mode === 'served'
+          ? { name: f.name, path: f.path, size: f.size, type: f.type }
+          : { name: f.name, size: f.size, type: f.type, dataUrl: f.dataUrl }));
+        break;
+      default: a.value = s.value.trim();
+    }
+    return a;
+  }
+
+  function applyRecommendation(q) {
+    const r = q.recommendation;
+    if (!r) return false;
+    const s = st[q.id];
+    s.skipped = false;
+    switch (q.type) {
+      case 'single': s.value = r.value; s.otherOn = false; break;
+      case 'multi': s.value = r.value.slice(); s.otherOn = false; break;
+      case 'rank': s.value = r.value.slice(); s.touched = true; break;
+      case 'confirm': s.mode = 'confirm'; break;
+      case 'number': s.value = String(r.value); break;
+      case 'upload': return false;
+      default: s.value = r.value;
+    }
+    return true;
+  }
+
+  // ------------------------------------------------------------ drafts
+
+  function saveDraftSoon() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveDraft, 300);
+  }
+
+  function saveDraft() {
+    if (submitted || !draftKey) return;
+    const strip = (files, dropData) => files
+      .filter((f) => !f.busy && !f.error)
+      .map(({ preview, busy, ...f }) => (mode === 'standalone' && f.dataUrl && (dropData || f.dataUrl.length > 2e6) ? { ...f, dataUrl: undefined } : f));
+    const build = (dropData) => {
+      const data = {};
+      for (const [id, s] of Object.entries(st)) data[id] = s.files ? { ...s, files: strip(s.files, dropData) } : s;
+      return JSON.stringify({ v: 1, savedAt: Date.now(), st: data, meta });
+    };
+    try { localStorage.setItem(draftKey, build(false)); return; } catch { /* likely over quota: retry without file contents */ }
+    try {
+      localStorage.setItem(draftKey, build(true));
+      if (!warned.lite) { warned.lite = true; toast('Browser storage is full: attached files won’t survive a reload, but your answers are still saved.', 5000); }
+    } catch {
+      if (!warned.none) { warned.none = true; toast('This browser isn’t saving your progress (storage full or blocked). Submit before you close the tab.', 6000); }
+    }
+  }
+
+  // Returns {savedAt, dropped: [file names that need attaching again]} or null.
+  function loadDraft() {
+    let d;
+    try { d = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { return null; }
+    if (!d || d.v !== 1 || !d.st) return null;
+    const dropped = [];
+    for (const q of order) {
+      const saved = d.st[q.id];
+      if (!saved || typeof saved !== 'object') continue;
+      const b = blank(q);
+      const merged = { ...b };
+      for (const k of Object.keys(b)) {
+        const v = saved[k];
+        if (v !== undefined && (b[k] === null || typeof v === typeof b[k])) merged[k] = v;
+      }
+      const isOpt = (x) => q.options.some((o) => o.id === x);
+      if (q.type === 'single' && merged.value !== null && !isOpt(merged.value)) merged.value = null;
+      if (q.type === 'confirm' && !['confirm', 'override', null].includes(merged.mode)) merged.mode = null;
+      if (Array.isArray(b.value)) merged.value = Array.isArray(merged.value) ? [...new Set(merged.value.filter(isOpt))] : b.value;
+      if (q.type === 'rank' && merged.value.length !== q.options.length) { merged.value = b.value; merged.touched = false; }
+      // The spec may have changed since the draft was saved: never restore a state the
+      // page can't show or the server will refuse.
+      if ((q.type === 'single' || q.type === 'multi') && q.allowOther === false) { merged.otherOn = false; merged.other = ''; }
+      if (q.type === 'upload') {
+        let files = (Array.isArray(merged.files) ? merged.files : []).filter((f) => f && typeof f.name === 'string').map(({ preview, busy, error, ...f }) => f);
+        if (mode === 'standalone') {
+          for (const f of files) if (!f.dataUrl) dropped.push(f.name);
+          files = files.filter((f) => f.dataUrl);
+        }
+        if (q.multiple === false && files.length > 1) { for (const f of files.slice(1)) dropped.push(f.name); files = files.slice(0, 1); }
+        merged.files = files;
+      }
+      st[q.id] = merged;
+    }
+    if (d.meta && typeof d.meta === 'object') {
+      if (typeof d.meta.answeredBy === 'string') { meta.answeredBy = d.meta.answeredBy; metaRestored = true; }
+      meta.generalNotes = String(d.meta.generalNotes || '');
+    }
+    return { savedAt: d.savedAt, dropped };
+  }
+
+  function clearDraft() {
+    try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
+  }
+
+  // ------------------------------------------------------------ network
+
+  async function api(method, url, body, headers = {}) {
+    const isBlob = typeof Blob !== 'undefined' && body instanceof Blob;
+    const r = await fetch(url, {
+      method,
+      headers: { 'X-Form-Token': token, ...(body && !isBlob ? { 'Content-Type': 'application/json' } : {}), ...headers },
+      body: body ? (isBlob ? body : JSON.stringify(body)) : undefined,
+    });
+    let data = null;
+    try { data = await r.json(); } catch { /* not json */ }
+    if (!r.ok) throw new Error((data && (data.errors ? data.errors.join('\n') : data.error)) || `${r.status} ${r.statusText}`);
+    return data;
+  }
+
+  // "answers.max-rows: must be >= 1000" -> "Q5 (What's the most rows…): must be >= 1000"
+  const humanize = (msg) => String(msg).replace(/answers\.([A-Za-z0-9._-]+?)(?=[.:\s]|$)/g, (m, id) => {
+    const q = byId.get(id);
+    return q ? `${qLabel(q)} (${plain(q.title)})` : m;
+  });
+
+  // ------------------------------------------------------------ rendering: answers
+
+  function changed(q, opts = {}) {
+    if (opts.rerender) {
+      renderAnswer(q);
+      if (opts.focus) refocus(q, opts.focus);
+    }
+    refresh();
+    saveDraftSoon();
+  }
+
+  // After a re-render the clicked button is gone; put focus on its replacement (or the
+  // first fallback that's enabled) so keyboard users don't land on <body>.
+  function refocus(q, keys) {
+    const card = nodes[q.id].card;
+    for (const k of [].concat(keys)) {
+      const el = card.querySelector(`[data-fk="${k}"]`);
+      if (el && !el.disabled && !el.hidden) { el.focus(); return; }
+    }
+    const any = card.querySelector('.answer input:not([disabled]), .answer textarea:not([disabled]), .answer button:not([disabled])');
+    if (any) any.focus();
+  }
+
+  function recWhy(q, text) {
+    if (!q.recommendation) return null;
+    return h('div', { class: 'rec-why' }, h('b', {}, 'Why recommended: '), h('span', { html: mdInline(text || q.recommendation.reason) }));
+  }
+
+  function renderChoices(q) {
+    const s = st[q.id];
+    const multi = q.type === 'multi';
+    const r = q.recommendation && q.recommendation.value;
+    const recSet = new Set(multi ? (r || []) : (r !== undefined ? [r] : []));
+    const name = `in-${q.id}`;
+    const box = h('fieldset', { class: 'choices' }, h('legend', { class: 'sr-only' }, plain(q.title)));
+    for (const o of q.options) {
+      const input = h('input', { type: multi ? 'checkbox' : 'radio', name, value: o.id });
+      input.checked = multi ? s.value.includes(o.id) : (!s.otherOn && s.value === o.id);
+      input.addEventListener('change', () => {
+        if (multi) s.value = input.checked ? [...new Set([...s.value, o.id])] : s.value.filter((x) => x !== o.id);
+        else { s.value = o.id; s.otherOn = false; }
+        s.skipped = false;
+        changed(q);
+      });
+      box.append(h('label', { class: `opt${recSet.has(o.id) ? ' is-rec' : ''}` }, input,
+        h('div', { class: 'opt-body' },
+          h('div', { class: 'opt-label' }, h('span', { html: mdInline(o.label) }), recSet.has(o.id) ? h('span', { class: 'tag tag-rec' }, 'Recommended') : null),
+          o.description ? h('div', { class: 'opt-desc md', html: md(o.description) }) : null,
+          o.consequence ? h('div', { class: 'opt-cons', html: `<span class="arrow">→</span> ${mdInline(o.consequence)}` }) : null,
+          o.preview ? (() => { const p = codeBlock(o.preview); p.classList.add('opt-preview'); return p; })() : null)));
+    }
+    if (q.allowOther !== false) {
+      const oIn = h('input', { type: multi ? 'checkbox' : 'radio', name, 'aria-label': 'Something else' });
+      oIn.checked = s.otherOn;
+      const oText = h('input', { type: 'text', class: 'other-text', placeholder: 'Something else — describe it', 'aria-label': 'Something else: describe it' });
+      oText.value = s.other;
+      oIn.addEventListener('change', () => {
+        s.otherOn = oIn.checked;
+        if (!multi && s.otherOn) s.value = null;
+        s.skipped = false;
+        changed(q);
+      });
+      oText.addEventListener('input', () => {
+        s.other = oText.value;
+        if (!s.otherOn && oText.value) {
+          s.otherOn = true;
+          oIn.checked = true;
+          if (!multi) s.value = null;
+        }
+        s.skipped = false;
+        changed(q);
+      });
+      box.append(h('label', { class: 'opt other' }, oIn, oText));
+    }
+    const hints = [];
+    if (multi && (Number.isInteger(q.min) || Number.isInteger(q.max))) {
+      hints.push(Number.isInteger(q.min) && Number.isInteger(q.max) ? `Pick ${q.min}–${q.max}.` : Number.isInteger(q.min) ? `Pick at least ${q.min}.` : `Pick up to ${q.max}.`);
+    } else if (multi) hints.push('Pick all that apply.');
+    return [box, hints.length ? h('div', { class: 'hint' }, hints.join(' ')) : null, recWhy(q)];
+  }
+
+  function useButton(q) {
+    return h('button', { type: 'button', class: 'btn small', 'data-fk': 'use', onclick: () => { applyRecommendation(q); changed(q, { rerender: true, focus: ['input'] }); } }, 'Use this');
+  }
+
+  function renderText(q) {
+    const s = st[q.id];
+    const long = q.type === 'longtext';
+    const props = { placeholder: q.placeholder || 'Your answer', 'aria-label': plain(q.title), 'data-fk': 'input' };
+    const input = long ? h('textarea', { rows: 4, ...props }) : h('input', { type: 'text', ...props });
+    input.value = s.value;
+    input.addEventListener('input', () => { s.value = input.value; if (input.value) s.skipped = false; changed(q); });
+    const r = q.recommendation;
+    const sug = r ? h('div', { class: 'suggest' }, h('span', { class: 'lbl' }, 'Suggested'), h('span', { class: 'val md', html: md(r.value) }), useButton(q)) : null;
+    return [input, sug, recWhy(q)];
+  }
+
+  function renderNumber(q) {
+    const s = st[q.id];
+    const input = h('input', { type: 'number', inputmode: 'decimal', placeholder: q.placeholder || '', min: q.min, max: q.max, step: q.step || 'any', 'aria-label': plain(q.title), 'data-fk': 'input' });
+    input.value = s.value;
+    input.addEventListener('input', () => { s.value = input.value; if (input.value) s.skipped = false; changed(q); });
+    const range = typeof q.min === 'number' || typeof q.max === 'number'
+      ? h('div', { class: 'hint' }, typeof q.min === 'number' && typeof q.max === 'number' ? `Between ${q.min} and ${q.max}.` : typeof q.min === 'number' ? `At least ${q.min}.` : `At most ${q.max}.`) : null;
+    const r = q.recommendation;
+    const sug = r ? h('div', { class: 'suggest' }, h('span', { class: 'lbl' }, 'Suggested'), h('span', { class: 'val' }, `${r.value}${q.unit ? ` ${q.unit}` : ''}`), useButton(q)) : null;
+    return [h('div', { class: 'num' }, input, q.unit ? h('span', { class: 'unit' }, q.unit) : null), range, sug, recWhy(q)];
+  }
+
+  function renderConfirm(q) {
+    const s = st[q.id];
+    const ta = h('textarea', { rows: 2, placeholder: 'What it should be instead', 'aria-label': 'Override', 'data-fk': 'override-text' });
+    ta.value = s.value;
+    ta.hidden = s.mode !== 'override';
+    ta.addEventListener('input', () => { s.value = ta.value; changed(q); });
+    const set = (m) => () => {
+      s.mode = s.mode === m ? null : m;
+      s.skipped = false;
+      changed(q, { rerender: true, focus: s.mode === 'override' ? ['override-text', m] : [m] });
+    };
+    return [h('div', { class: 'confirm-box' },
+      h('div', { class: 'def' }, h('span', { class: 'lbl' }, 'Default the agent will use'), h('div', { class: 'md', html: md(q.recommendation.value) })),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Confirm or override' },
+        h('button', { type: 'button', 'data-fk': 'confirm', 'aria-pressed': String(s.mode === 'confirm'), onclick: set('confirm') }, '✓ Confirm'),
+        h('button', { type: 'button', 'data-fk': 'override', 'aria-pressed': String(s.mode === 'override'), onclick: set('override') }, '✎ Override')),
+      ta), recWhy(q)];
+  }
+
+  function renderRank(q) {
+    const s = st[q.id];
+    const opt = (id) => q.options.find((o) => o.id === id);
+    const move = (i, d) => () => {
+      const j = i + d;
+      if (j < 0 || j >= s.value.length) return;
+      [s.value[i], s.value[j]] = [s.value[j], s.value[i]];
+      s.touched = true;
+      s.skipped = false;
+      const id = s.value[j];
+      changed(q, { rerender: true, focus: [`mv:${id}:${d}`, `mv:${id}:${-d}`] });
+    };
+    const list = h('ol', { class: 'rank' }, s.value.map((id, i) => {
+      const o = opt(id);
+      return h('li', {}, h('span', { class: 'pos' }, String(i + 1)),
+        h('div', { class: 'body' }, h('div', {}, h('b', { html: mdInline(o.label) })), o.description ? h('div', { class: 'd md', html: md(o.description) }) : null),
+        h('div', { class: 'mv' },
+          h('button', { type: 'button', class: 'btn small', 'aria-label': `Move ${plain(o.label)} up`, 'data-fk': `mv:${id}:-1`, disabled: i === 0, onclick: move(i, -1) }, '↑'),
+          h('button', { type: 'button', class: 'btn small', 'aria-label': `Move ${plain(o.label)} down`, 'data-fk': `mv:${id}:1`, disabled: i === s.value.length - 1, onclick: move(i, 1) }, '↓')));
+    }));
+    const actions = h('div', { class: 'rank-actions' },
+      h('button', { type: 'button', class: 'btn small', 'data-fk': 'keep', onclick: () => { s.touched = true; s.skipped = false; changed(q, { rerender: true, focus: ['keep'] }); } }, s.touched ? '✓ Order set' : 'Keep this order'),
+      q.recommendation ? h('button', { type: 'button', class: 'btn small', 'data-fk': 'rec', onclick: () => { applyRecommendation(q); changed(q, { rerender: true, focus: ['rec'] }); } }, 'Use recommended order') : null);
+    const rec = q.recommendation
+      ? h('div', { class: 'rec-why' }, h('b', {}, 'Recommended order: '),
+        h('span', { html: `${q.recommendation.value.map((id) => mdInline(opt(id).label)).join(' → ')}. ${mdInline(q.recommendation.reason)}` }))
+      : null;
+    return [h('div', { class: 'hint', style: 'margin:0 0 8px' }, 'Top = highest priority. Move items with the arrows.'), list, actions, rec];
+  }
+
+  function accepts(q, file) {
+    if (!q.accept) return true;
+    const name = file.name.toLowerCase();
+    const type = (file.type || '').toLowerCase();
+    return q.accept.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
+      .some((t) => (t.startsWith('.') ? name.endsWith(t) : t.endsWith('/*') ? type.startsWith(t.slice(0, -1)) : type === t));
+  }
+
+  function renderUpload(q) {
+    const s = st[q.id];
+    const limitMB = Math.min(q.maxSizeMB || info.maxUploadMB || 25, mode === 'served' ? 200 : 10);
+    const multiple = q.multiple !== false;
+    const input = h('input', { type: 'file', hidden: true, multiple, accept: q.accept });
+    const listEl = h('ul', { class: 'files' });
+    const drawList = () => {
+      listEl.replaceChildren(...s.files.map((f, i) => h('li', {},
+        f.type && f.type.startsWith('image/') && (f.dataUrl || f.preview) ? h('img', { src: f.dataUrl || f.preview, alt: '' }) : null,
+        h('span', { class: 'nm', title: f.name }, f.name),
+        h('span', { class: 'sz' }, f.busy ? 'uploading…' : fmtSize(f.size || 0)),
+        f.error ? h('span', { class: 'bad' }, f.error) : null,
+        h('button', { type: 'button', class: 'link', 'aria-label': `Remove ${f.name}`, onclick: () => { s.files.splice(i, 1); drawList(); changed(q); } }, 'Remove'))));
+    };
+    const add = (fileList) => {
+      let files = [...fileList];
+      const rejected = files.filter((f) => !accepts(q, f)).map((f) => f.name);
+      files = files.filter((f) => accepts(q, f));
+      if (rejected.length) toast(`Not attached (this question takes ${q.accept}): ${rejected.join(', ')}`, 5000);
+      if (!files.length) return;
+      if (!multiple) s.files = [];
+      for (const file of (multiple ? files : files.slice(0, 1))) {
+        const f = { name: file.name, size: file.size, type: file.type || 'application/octet-stream', busy: true };
+        s.files.push(f);
+        s.skipped = false;
+        if (file.size > limitMB * 1048576) { f.busy = false; f.error = `over ${limitMB} MB`; continue; }
+        if (file.type.startsWith('image/') && file.size < 5e6) f.preview = URL.createObjectURL(file);
+        if (mode === 'served') {
+          api('POST', `/api/upload?q=${encodeURIComponent(q.id)}&name=${encodeURIComponent(file.name)}`, file, { 'Content-Type': f.type })
+            .then((m) => { Object.assign(f, { name: m.name, path: m.path, size: m.size }); })
+            .catch((e) => { f.error = e.message; })
+            .finally(() => { f.busy = false; drawList(); changed(q); });
+        } else {
+          const rd = new FileReader();
+          rd.onload = () => { f.dataUrl = rd.result; f.busy = false; drawList(); changed(q); };
+          rd.onerror = () => { f.error = 'could not read file'; f.busy = false; drawList(); changed(q); };
+          rd.readAsDataURL(file);
+        }
+      }
+      drawList();
+      changed(q);
+    };
+    input.addEventListener('change', () => { add(input.files); input.value = ''; });
+    const drop = h('div', { class: 'drop' },
+      `Drop ${multiple ? 'files' : 'a file'} here or `,
+      h('button', { type: 'button', class: 'btn small', onclick: () => input.click() }, multiple ? 'Choose files' : 'Choose a file'),
+      h('div', { class: 'hint' }, [q.accept ? `Accepts ${q.accept}.` : null, `Up to ${limitMB} MB each.`,
+        mode === 'served' ? `Saved under ${info.saveDir || 'the form folder'}/uploads/.` : 'Embedded in the answers file you download.'].filter(Boolean).join(' ')),
+      input);
+    let depth = 0; // dragenter/dragleave fire for every child; count them to avoid flicker
+    drop.addEventListener('dragenter', (e) => { e.preventDefault(); depth += 1; drop.classList.add('over'); });
+    drop.addEventListener('dragover', (e) => e.preventDefault());
+    drop.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove('over'); });
+    drop.addEventListener('drop', (e) => { e.preventDefault(); depth = 0; drop.classList.remove('over'); add(e.dataTransfer.files); });
+    drawList();
+    return [drop, listEl];
+  }
+
+  function renderAnswer(q) {
+    const area = nodes[q.id].answer;
+    const r = { single: renderChoices, multi: renderChoices, text: renderText, longtext: renderText, number: renderNumber,
+      confirm: renderConfirm, rank: renderRank, upload: renderUpload }[q.type](q);
+    area.replaceChildren(...[r].flat().filter(Boolean), nodes[q.id].error);
+  }
+
+  // ------------------------------------------------------------ rendering: cards
+
+  function evidenceBlock(list, open) {
+    if (!Array.isArray(list) || !list.length) return null;
+    return h('details', { class: 'evidence', open: open || undefined },
+      h('summary', {}, `Evidence (${list.length})`),
+      h('div', { class: 'ev-list' }, list.map((e) => {
+        const where = e.path ? `${e.path}${e.line ? `:${e.line}${e.endLine && e.endLine !== e.line ? `–${e.endLine}` : ''}` : ''}` : null;
+        const url = !e.url ? null
+          : safeUrl(e.url) ? h('span', { html: link(e.url, esc(e.url.replace(/^https?:\/\//i, '').slice(0, 80))) })
+            : h('code', {}, e.url); // never a live link for javascript:, data:, …
+        return h('div', { class: 'ev' },
+          h('div', { class: 'ev-head' }, where ? h('code', {}, where) : null, e.label ? h('span', { class: 'lbl', html: mdInline(e.label) }) : null, url),
+          e.note ? h('div', { class: 'ev-note', html: mdInline(e.note) }) : null,
+          e.code ? codeBlock(e.code, e.line) : null);
+      })));
+  }
+
+  function renderQuestion(q, n) {
+    const s = st[q.id];
+    const [impText, impClass] = IMPACT[q.impact] || [];
+    const statusEl = h('span', { class: 'status', 'aria-live': 'polite' });
+    const error = h('div', { class: 'err-text', role: 'alert' });
+    const answer = h('div', { class: 'answer' });
+
+    const noteTa = h('textarea', { rows: 2, placeholder: 'Context, caveats, or a condition on your answer…', 'aria-label': `Note on Q${n}` });
+    noteTa.value = s.note;
+    const noteBox = h('div', { class: 'note-box', id: `note-${q.id}` }, noteTa);
+    noteBox.hidden = !s.noteOpen && !s.note;
+    const noteBtn = h('button', { type: 'button', class: 'link', 'aria-controls': `note-${q.id}` });
+    const drawNoteBtn = () => {
+      noteBtn.textContent = noteBox.hidden ? (s.note.trim() ? 'Show note' : '+ Add a note') : 'Hide note';
+      noteBtn.setAttribute('aria-expanded', String(!noteBox.hidden));
+    };
+    noteBtn.addEventListener('click', () => {
+      noteBox.hidden = !noteBox.hidden;
+      s.noteOpen = !noteBox.hidden;
+      drawNoteBtn();
+      if (!noteBox.hidden) noteTa.focus();
+      saveDraftSoon();
+    });
+    noteTa.addEventListener('input', () => { s.note = noteTa.value; saveDraftSoon(); });
+    drawNoteBtn();
+
+    const reasonIn = h('input', { type: 'text', 'aria-label': 'Why skip', placeholder: 'Optional: why, or who should answer it' });
+    reasonIn.value = s.reason;
+    reasonIn.addEventListener('input', () => { s.reason = reasonIn.value; saveDraftSoon(); });
+    const skipBox = h('div', { class: `skip-box${q.oneWayDoor ? ' owd' : ''}` },
+      h('p', { html: q.required === false
+        ? '<b>Skipped.</b> This one is optional, so nothing more is needed.'
+        : `<b>Skipped for now.</b> Skipping doesn’t hand this to the agent: it comes back to you in the next round, and the grill isn’t finished until it’s answered${q.oneWayDoor ? '. As a one-way door, it also blocks the plan until then' : ''}.` }),
+      reasonIn);
+    const skipBtn = h('button', { type: 'button', class: 'link', onclick: () => {
+      s.skipped = !s.skipped;
+      changed(q);
+      if (s.skipped) reasonIn.focus();
+    } });
+
+    const card = h('article', { class: 'card q', id: `q-${q.id}`, 'aria-labelledby': `t-${q.id}` },
+      h('div', { class: 'q-meta' },
+        h('span', { class: 'qn', title: `id: ${q.id}` }, `Q${n}`),
+        impText ? h('span', { class: `tag ${impClass}` }, impText) : null,
+        q.oneWayDoor ? h('span', { class: 'tag tag-owd', title: 'Hard to reverse: data, contracts, auth, money, production' }, 'One-way door') : null,
+        statusEl),
+      h('h3', { id: `t-${q.id}` }, q.title),
+      q.why ? h('p', { class: 'why' }, h('b', {}, 'Why it matters: '), h('span', { html: mdInline(q.why) })) : null,
+      q.context ? h('div', { class: 'context md', html: md(q.context) }) : null,
+      evidenceBlock(q.evidence, q.impact === 'blocking'),
+      answer,
+      h('div', { class: 'q-foot' }, noteBtn, skipBtn),
+      noteBox, skipBox);
+
+    nodes[q.id] = { card, statusEl, error, answer, skipBtn, skipBox };
+    renderAnswer(q);
+    return card;
+  }
+
+  function refresh() {
+    let total = 0;
+    let answered = 0;
+    let skipped = 0;
+    for (const q of order) {
+      const n = nodes[q.id];
+      const status = viewStatus(q);
+      const shown = status !== 'not_applicable';
+      n.card.hidden = !shown;
+      n.nav.hidden = !shown;
+      if (!shown) continue;
+      if (status !== 'optional') total += 1;
+      if (status === 'answered') answered += 1;
+      if (status === 'skipped') skipped += 1;
+      if (n.card.dataset.status !== status) {
+        n.card.dataset.status = status;
+        n.nav.dataset.status = status;
+        n.card.classList.toggle('is-skipped', status === 'skipped');
+      }
+      // Live regions re-announce on every write, so only write real changes.
+      setText(n.statusEl, STATUS_TEXT[status]);
+      const c = check(q);
+      setText(n.error, status !== 'skipped' && c.error ? c.error : '');
+      setText(n.skipBtn, status === 'skipped' ? 'Undo skip' : 'Skip for now');
+      n.skipBox.hidden = status !== 'skipped';
+    }
+    for (const sec of spec.sections) {
+      nodes[`sec:${sec.id}`].hidden = !sec.questions.some((q) => !nodes[q.id].card.hidden);
+    }
+    const done = answered + skipped;
+    nodes.meter.style.width = `${total ? Math.min(100, (100 * done) / total) : 0}%`;
+    setText(nodes.countLong, `${answered} of ${total} answered${skipped ? ` · ${skipped} skipped` : ''}`);
+    setText(nodes.countShort, `${done}/${total}`);
+    nodes.next.disabled = !order.some(isOpen);
+    const recLeft = order.filter(canBulkAccept).length;
+    for (const b of nodes.acceptAll) {
+      b.disabled = !recLeft;
+      setText(b, recLeft ? `Accept ${recLeft} recommendation${recLeft === 1 ? '' : 's'}` : 'Recommendations applied');
+    }
+  }
+
+  const canBulkAccept = (q) => q.recommendation && q.type !== 'upload' && !q.oneWayDoor && statusOf(q) === 'unanswered';
+
+  // Accept only what the owner could see when they clicked: a follow-up revealed by an
+  // accepted parent is theirs to answer, never accepted on their behalf.
+  function acceptRecommendations(list) {
+    const before = new Set(order.filter(visible).map((q) => q.id));
+    const targets = list.filter(canBulkAccept);
+    for (const q of targets) if (applyRecommendation(q)) renderAnswer(q);
+    refresh();
+    saveDraftSoon();
+    const revealed = order.filter((q) => visible(q) && !before.has(q.id)).length;
+    const owd = list.filter((q) => q.oneWayDoor && visible(q) && isOpen(q)).length;
+    const parts = [targets.length ? `Applied ${targets.length} recommendation${targets.length === 1 ? '' : 's'}` : 'Nothing left to accept'];
+    if (revealed) parts.push(`${revealed} follow-up question${revealed === 1 ? '' : 's'} appeared for you to answer`);
+    if (owd) parts.push(`${owd} one-way door${owd === 1 ? '' : 's'} left for you`);
+    toast(parts.join(' · '), revealed ? 5000 : 2800);
+  }
+
+  function goTo(q) {
+    const card = nodes[q.id].card;
+    card.scrollIntoView({ block: 'start' });
+    card.classList.remove('flash');
+    void card.offsetWidth;
+    card.classList.add('flash');
+    const focusable = card.querySelector('.answer input:not([disabled]), .answer textarea:not([disabled]), .answer button:not([disabled])');
+    if (focusable) focusable.focus({ preventScroll: true });
+  }
+
+  function nextUnanswered() {
+    const pending = order.filter(isOpen);
+    if (!pending.length) return;
+    const y = window.scrollY + 90;
+    const after = pending.find((q) => nodes[q.id].card.getBoundingClientRect().top + window.scrollY > y);
+    goTo(after || pending[0]);
+  }
+
+  // ------------------------------------------------------------ submit
+
+  function buildSubmission() {
+    const answers = {};
+    for (const q of order) answers[q.id] = answerFor(q);
+    const sub = {
+      formId: spec.id,
+      round: spec.round || 1,
+      submittedAt: new Date().toISOString(),
+      answeredBy: meta.answeredBy.trim() || null,
+      generalNotes: meta.generalNotes.trim() || null,
+      answers,
+    };
+    if (specSha256) sub.specSha256 = specSha256;
+    return sub;
+  }
+
+  const uploadsBusy = () => order.some((q) => q.type === 'upload' && visible(q) && st[q.id].files.some((f) => f.busy));
+
+  function openReview() {
+    const shown = order.filter(visible);
+    const by = (k) => shown.filter((q) => viewStatus(q) === k);
+    // Required questions skipped or left open come back in the next round.
+    const back = shown.filter((q) => q.required !== false && ['unanswered', 'invalid', 'skipped'].includes(viewStatus(q)));
+    const qLink = (q) => h('li', {}, h('a', { href: `#q-${q.id}`, onclick: (e) => { e.preventDefault(); dlg.close(); goTo(q); } },
+      `${qLabel(q)} · ${plain(q.title)}`), viewStatus(q) === 'skipped' ? ' (skipped)' : '', q.oneWayDoor ? ' — one-way door' : '');
+    const errBox = h('div', { class: 'banner err', role: 'alert', hidden: true });
+    const label = mode === 'served' ? 'Submit answers' : 'Download answers';
+    const submitBtn = h('button', { type: 'button', class: 'btn primary' }, label);
+    const open = back.filter((q) => viewStatus(q) !== 'skipped').length;
+    const dlg = h('dialog', { 'aria-labelledby': 'dlg-title' }, h('div', { class: 'dlg' },
+      h('h2', { id: 'dlg-title' }, back.length ? `${back.length} question${back.length === 1 ? '' : 's'} will come back to you` : 'Ready to submit'),
+      h('div', { class: 'stats' },
+        h('span', { class: 'stat' }, h('b', {}, String(by('answered').length)), ' answered'),
+        h('span', { class: 'stat' }, h('b', {}, String(by('skipped').length)), ' skipped'),
+        h('span', { class: 'stat' }, h('b', {}, String(open)), ' open')),
+      back.length ? [h('p', {}, 'Skipping or leaving a question open doesn’t hand it to the agent. These come back in a follow-up round, and the grill isn’t finished until they’re answered. Jump back to answer them now:'), h('ul', {}, back.map(qLink))] : null,
+      !back.length ? h('p', {}, mode === 'served' ? 'Your answers are written to the form folder and the agent picks them up from there.' : 'You’ll get a JSON file to hand back to your agent.') : null,
+      errBox,
+      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, 'Keep answering'), submitBtn)));
+    dlg.addEventListener('close', () => dlg.remove());
+    submitBtn.addEventListener('click', async () => {
+      if (uploadsBusy()) { errBox.hidden = false; errBox.textContent = 'Wait for the uploads to finish, then submit.'; return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving…';
+      try {
+        await submit();
+        dlg.close();
+      } catch (e) {
+        errBox.hidden = false;
+        errBox.textContent = humanize(e.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = mode === 'served' ? 'Try again' : label;
+      }
+    });
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
+  function downloadJson(obj, name) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const a = h('a', { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  async function submit() {
+    const sub = buildSubmission();
+    if (mode === 'served') {
+      const r = await api('POST', '/api/submit', sub);
+      submitted = true;
+      clearDraft();
+      return showDone(r, r.doc || sub);
+    }
+    const doc = { ...sub, mode: 'standalone' };
+    downloadJson(doc, `${spec.id}-answers.json`);
+    submitted = true;
+    clearDraft();
+    return showDone(null, doc);
+  }
+
+  function showDone(r, doc) {
+    let s = r && r.summary;
+    if (!s) {
+      s = { answered: 0, skipped: 0, unanswered: 0, needsAnswer: [] };
+      for (const q of order) {
+        const a = doc.answers[q.id];
+        if (!a || (q.required === false && a.status !== 'answered')) continue;
+        if (s[a.status] !== undefined) s[a.status] += 1;
+        if (a.status === 'skipped' || a.status === 'unanswered') s.needsAnswer.push(q.id);
+      }
+    }
+    const coming = (s.needsAnswer || []).length;
+    const json = JSON.stringify(doc, null, 2);
+    const ta = h('textarea', { readonly: true, 'aria-label': 'Answers JSON' });
+    ta.value = json.length > 400000 ? `${json.slice(0, 400000)}\n… (truncated here; the downloaded file is complete)` : json;
+    const copy = h('button', { type: 'button', class: 'btn', onclick: async () => {
+      try { await navigator.clipboard.writeText(json); toast('Copied'); } catch { ta.hidden = false; ta.select(); toast('Selected — press Ctrl/Cmd+C'); }
+    } }, 'Copy JSON');
+    if (r) ta.hidden = true;
+    const app = document.getElementById('app');
+    app.replaceChildren(h('div', { class: 'done' }, h('div', { class: 'card' },
+      h('div', { class: 'tick', 'aria-hidden': 'true' }, '✓'),
+      h('h1', {}, r ? 'Answers saved' : 'Answers downloaded'),
+      coming ? h('div', { class: 'banner warn' }, `${coming} question${coming === 1 ? '' : 's'} you skipped or left open will come back in a follow-up round. The agent won’t decide ${coming === 1 ? 'it' : 'them'} for you.`) : null,
+      h('div', { class: 'stats' },
+        h('span', { class: 'stat' }, h('b', {}, String(s.answered)), ' answered'),
+        h('span', { class: 'stat' }, h('b', {}, String(s.skipped)), ' skipped'),
+        h('span', { class: 'stat' }, h('b', {}, String(s.unanswered)), ' open')),
+      r
+        ? h('p', {}, 'Saved to ', h('code', {}, r.path), '. ', h('b', {}, 'Go back to your agent and tell it you’re done'), ' — it reads the answers from there. You can close this tab.')
+        : h('p', {}, h('b', {}, `Hand ${spec.id}-answers.json back to your agent`), ': tell it where the file landed (usually your Downloads folder), or copy the JSON below and paste it into the chat. Uploaded files are embedded in it.'),
+      h('div', { class: 'end', style: 'justify-content:flex-start' }, copy,
+        h('button', { type: 'button', class: 'btn', onclick: () => downloadJson(doc, `${spec.id}-answers.json`) }, r ? 'Download a copy' : 'Download again')),
+      ta)));
+    window.scrollTo(0, 0);
+    document.title = `✓ ${spec.title}`;
+  }
+
+  // ------------------------------------------------------------ boot
+
+  function fatal(title, detail) {
+    document.getElementById('app').replaceChildren(h('div', { class: 'done' }, h('div', { class: 'card' },
+      h('h1', {}, title), detail ? h('pre', { class: 'code', style: 'white-space:pre-wrap' }, detail) : null)));
+  }
+
+  function lightCheck(sp) {
+    const p = [];
+    if (!sp || typeof sp !== 'object') return ['questions are not a JSON object'];
+    if (!sp.id) p.push('missing id');
+    if (!sp.title) p.push('missing title');
+    if (!Array.isArray(sp.sections) || !sp.sections.length) return [...p, 'missing sections'];
+    const seen = new Set();
+    for (const s of sp.sections) {
+      for (const q of s.questions || []) {
+        if (!q.id || seen.has(q.id)) p.push(`question id missing or duplicated: ${q.id}`);
+        seen.add(q.id);
+        if (!TYPES.includes(q.type)) p.push(`${q.id}: unknown type ${q.type}`);
+        if (CHOICE.has(q.type) && (!Array.isArray(q.options) || !q.options.length)) p.push(`${q.id}: needs options`);
+        if (q.type === 'confirm' && !(q.recommendation && q.recommendation.value)) p.push(`${q.id}: confirm needs recommendation.value`);
+        if (q.showIf && !seen.has(q.showIf.question)) p.push(`${q.id}: showIf must point at an earlier question`);
+      }
+    }
+    return p;
+  }
+
+  function acceptButton(cls) {
+    const b = h('button', { type: 'button', class: `btn ${cls}`, title: 'Fills every open question that has a recommendation. One-way doors are left for you.', onclick: () => acceptRecommendations(order) });
+    nodes.acceptAll.push(b);
+    return b;
+  }
+
+  function render(restored) {
+    const app = document.getElementById('app');
+    const navLists = [];
+    let n = 0;
+
+    nodes.meter = h('i');
+    nodes.countLong = h('span', { class: 'long' });
+    nodes.countShort = h('span', { class: 'short' });
+    nodes.next = h('button', { type: 'button', class: 'btn next-open', onclick: nextUnanswered }, 'Next open ↓');
+    const bar = h('header', { class: 'bar' }, h('div', { class: 'bar-in' },
+      h('div', { class: 'bar-title', title: spec.title }, spec.title),
+      h('div', { class: 'progress' }, h('div', { class: 'meter', 'aria-hidden': 'true' }, nodes.meter), nodes.countLong, nodes.countShort),
+      nodes.next, acceptButton('accept-all'),
+      h('button', { type: 'button', class: 'btn primary', onclick: openReview }, 'Review & submit')));
+
+    const who = h('input', { type: 'text', placeholder: 'Your name (recorded with the answers)', 'aria-label': 'Your name' });
+    who.value = metaRestored ? meta.answeredBy : (spec.owner || '');
+    meta.answeredBy = who.value;
+    who.addEventListener('input', () => { meta.answeredBy = who.value; metaRestored = true; saveDraftSoon(); });
+
+    const chips = [spec.skill ? h('span', { class: 'chip' }, spec.skill) : null, h('span', { class: 'chip' }, `Round ${spec.round || 1}`),
+      spec.slug ? h('span', { class: 'chip mono' }, spec.slug) : null, ...(spec.flags || []).map((f) => h('span', { class: 'chip mono' }, f))];
+
+    const banners = [];
+    if (restored && restored.savedAt) {
+      banners.push(h('div', { class: 'banner' }, h('span', {}, `Restored the answers you started ${new Date(restored.savedAt).toLocaleString()} (kept in this browser).`),
+        h('button', { type: 'button', class: 'btn small', onclick: () => { clearDraft(); location.reload(); } }, 'Start over')));
+    }
+    if (restored && restored.dropped.length) {
+      banners.push(h('div', { class: 'banner warn', role: 'alert' }, `Attach these again — your saved progress listed them, but they weren’t kept: ${restored.dropped.join(', ')}`));
+    }
+    if (mode === 'standalone') {
+      banners.push(h('div', { class: 'banner' }, h('span', {}, 'Offline copy: when you finish, you’ll download your answers as a JSON file to hand back to the agent.')));
+    }
+
+    const proven = (spec.proven || []).length ? h('details', { class: 'card proven' },
+      h('summary', {}, `Already settled — no need to answer (${spec.proven.length})`),
+      h('ul', {}, spec.proven.map((p) => (typeof p === 'string'
+        ? h('li', { html: mdInline(p) })
+        : h('li', {}, h('div', { html: mdInline(p.text) }), evidenceBlock(p.evidence, false)))))) : null;
+
+    const hero = h('section', { class: 'hero' },
+      h('div', { class: 'chips' }, chips),
+      h('h1', {}, spec.title),
+      spec.summary ? h('div', { class: 'lede md', html: md(spec.summary) }) : null,
+      mode === 'served' ? h('div', { class: 'save-note' }, 'Answers and uploads are saved to ', h('code', {}, info.saveDir || '.'), ' on your machine. Your progress is kept in this browser until you submit.') : null,
+      h('div', { class: 'who' }, h('label', {}, 'Answering as'), who),
+      h('div', { class: 'legend' },
+        h('span', {}, h('span', { class: 'tag tag-blocking' }, 'Blocking'), ' changes the plan’s shape'),
+        h('span', {}, h('span', { class: 'tag tag-owd' }, 'One-way door'), ' hard to reverse'),
+        h('span', {}, h('span', { class: 'tag tag-rec' }, 'Recommended'), ' the agent’s pick — one click to accept')),
+      acceptButton('hero-accept'));
+
+    const sections = spec.sections.map((sec) => {
+      const navItems = [];
+      const cards = sec.questions.map((q) => {
+        n += 1;
+        const card = renderQuestion(q, n);
+        const nav = h('a', { href: `#q-${q.id}`, onclick: (e) => { e.preventDefault(); goTo(q); } }, h('span', { class: 'dot' }), h('span', { class: 'n' }, `Q${n}`), h('span', { class: 't' }, plain(q.title)));
+        nodes[q.id].nav = nav;
+        navItems.push(nav);
+        return card;
+      });
+      const recQs = sec.questions.filter((q) => q.recommendation && q.type !== 'upload' && !q.oneWayDoor && !q.showIf);
+      const wrap = h('section', { 'aria-labelledby': `s-${sec.id}` },
+        h('div', { class: 'section-head' }, h('h2', { id: `s-${sec.id}` }, sec.title),
+          recQs.length > 1 ? h('button', { type: 'button', class: 'link', onclick: () => acceptRecommendations(sec.questions) }, 'Accept this section’s recommendations') : null),
+        sec.intro ? h('div', { class: 'section-intro md', html: md(sec.intro) }) : null,
+        cards);
+      nodes[`sec:${sec.id}`] = wrap;
+      navLists.push(h('div', {}, h('h4', {}, sec.title), navItems));
+      return wrap;
+    });
+
+    const general = h('textarea', { rows: 3, placeholder: 'Anything the questions missed — constraints, people to consult, things you’re worried about.', 'aria-label': 'Anything else' });
+    general.value = meta.generalNotes;
+    general.addEventListener('input', () => { meta.generalNotes = general.value; saveDraftSoon(); });
+
+    app.replaceChildren(bar, h('div', { class: 'wrap' },
+      h('nav', { class: 'side', 'aria-label': 'Questions' }, navLists),
+      h('main', {}, banners, hero, proven, sections,
+        h('section', { class: 'card', style: 'margin-top:34px' }, h('h3', { style: 'margin-top:0' }, 'Anything else?'), general),
+        h('div', { class: 'end' }, h('span', { class: 'hint' }, 'You can submit with questions open or skipped; they come back to you in a follow-up round.'),
+          h('button', { type: 'button', class: 'btn primary', onclick: openReview }, 'Review & submit')))));
+    document.title = spec.title;
+    refresh();
+  }
+
+  function readToken() {
+    const fromUrl = new URLSearchParams(location.search).get('t');
+    let stored = null;
+    try {
+      if (fromUrl) sessionStorage.setItem('decision-form-token', fromUrl);
+      stored = sessionStorage.getItem('decision-form-token');
+    } catch { /* storage blocked: keep the token in the URL */ }
+    // Keep the token out of browser history, but only once a reload can still find it.
+    if (fromUrl && stored === fromUrl) { try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ } }
+    return fromUrl || stored || '';
+  }
+
+  async function boot() {
+    const tag = document.getElementById('form-spec');
+    const inline = (tag.textContent || '').trim();
+    try {
+      if (inline) {
+        spec = JSON.parse(inline);
+        mode = 'standalone';
+        specSha256 = tag.getAttribute('data-sha256') || null;
+        info = { maxUploadMB: 10 };
+      } else if (/^https?:$/.test(location.protocol)) {
+        token = readToken();
+        info = await api('GET', '/api/spec');
+        spec = info.spec;
+      } else {
+        return fatal('No questions loaded', 'Serve this form with\n  node scripts/decision_form.mjs serve <form-dir>\nor build an offline copy with\n  node scripts/decision_form.mjs build <form-dir>');
+      }
+    } catch (e) {
+      return fatal('Could not load the questions', `${e.message}\n\nIf the agent restarted the form, open the new URL it gave you.`);
+    }
+    const problems = lightCheck(spec);
+    if (problems.length) return fatal('These questions have problems', problems.join('\n'));
+    for (const sec of spec.sections) for (const q of sec.questions) { order.push(q); byId.set(q.id, q); st[q.id] = blank(q); }
+    draftKey = `decision-form:${spec.id}`;
+    const restored = loadDraft();
+    if (mode === 'served') {
+      // Keep only restored files the server still has; name the rest so they get re-attached.
+      const onServer = new Set((info.uploads || []).map((u) => `${u.question}/${u.path}`));
+      for (const q of order) {
+        if (q.type !== 'upload') continue;
+        const keep = [];
+        for (const f of st[q.id].files) {
+          if (f.path && onServer.has(`${q.id}/${f.path}`)) keep.push(f);
+          else if (restored) restored.dropped.push(f.name);
+        }
+        st[q.id].files = keep;
+      }
+    }
+    window.addEventListener('dragover', (e) => e.preventDefault()); // a missed drop must not navigate away from the form
+    window.addEventListener('drop', (e) => e.preventDefault());
+    const flush = () => { clearTimeout(saveTimer); saveDraft(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+    render(restored);
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
