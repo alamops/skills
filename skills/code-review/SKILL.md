@@ -18,7 +18,16 @@ The defects that cost the most in a finished change are rarely typos in the chan
 - **A mistake the repo already wrote down.** A lessons-learned entry, a checklist, an ADR or a tech-debt item that the change repeats.
 - **Claims that drifted from the code.** The PR body, a generated report, the plan's ledger or a commit message describes work that isn't there.
 
-The diff alone shows none of these. Each one needs you to look past the changed lines, at callers, entry points, the deployment shape and the repo's own docs. Spend most of the review's effort there.
+The diff alone shows none of these. Each one needs you to look past the changed lines, at callers, entry points, the deployment shape and the repo's own docs.
+
+The other half of what reviews miss sits **inside** the changed lines. It's easy to read past because each line looks right on its own:
+
+- **A check that goes stale across an `await`.** The code checks state, awaits a probe, then acts on the old answer.
+- **An async result that lands out of order.** An older call finishes last and overwrites a newer result.
+- **A matcher sized for the tidy input.** A regex, scan window or buffer can't hold the longest or most wrapped input the feature claims to support.
+- **A guard or redaction on one branch or sink.** It's missing on the reject branch, the error path, or the debug excerpt.
+
+A reviewer who looks only past the diff misses these, and so does one who only skims it. §5's *Line by line* questions are how to catch them. Give both halves real effort.
 
 ## Rules
 
@@ -99,9 +108,14 @@ Every hit is a **lead, not a finding**. Confirm it against the code, then report
 - caches that serve stale or expired values;
 - a command that's ignored after another one ran on the same version;
 - a gate that never reopens;
-- options or arguments that are accepted and then ignored.
+- options or arguments that are accepted and then ignored;
+- a decision made before an `await` and acted on after it, when the state could have changed in between.
 
 Cross-cutting checklists miss this whole class of bug, because no single concern owns "is this flow right?". A review built only from dimension passes finds the classic defects and misses the feature's own logic errors.
+
+Each correctness pass also reads **every changed hunk** in its area and asks §5's *Line by line* questions of it. Paste those questions into the brief. A pass that only traces flows at the function level walks right past a stale check after an `await` or a regex that misses a wrapped line.
+
+**Size correctness passes by changed lines, not by subsystem.** Keep each one to roughly 1,500 changed lines of logic. Split a big subsystem by file group, and give a single huge file to its own pass. A reviewer given a 300-line diff tends to catch these line-level bugs. Given 5,000 lines, it skims, and these are the bugs it drops first. Tests, fixtures and docs go to the pass that owns the code they cover, so it can check them against that code.
 
 Each brief carries:
 
@@ -137,6 +151,7 @@ When an earlier review exists, the re-review has two jobs, in this order. The ea
 - **A new path around the guard.** The fix established an invariant on the main path, and a new short-cut, retry, follow-up job or fallback reaches the same action without passing through it.
 - **Checked data stored where the checked party can write.** The fix validates an artifact, then stores it or reloads it from a location the untrusted party controls.
 - **The anti-pattern returns on a new entity.** The review removed it for one entity, and the fix round reintroduces it for a new one, such as raw state writes for a new lifecycle when the old ones moved behind a transition table.
+- **A new `await` inside an old check-then-act.** The fix adds a refresh, probe or warm-up in the middle of a function that checked state and then acted. Everything read above the new `await` is stale below it, so the guards above it no longer protect the action.
 - **Code moved, not fixed.** A god file was split into files that hold the same oversized functions. Optional config parameters with a silent fallback to defaults reopen the hardcoded-config bug class the review closed.
 - **Docs and status describing an earlier head.** The PR body, reports, plan status, counts or commit map describe an earlier head, or disagree with each other.
 
@@ -152,12 +167,28 @@ Before the checklists, walk each user flow the change touches from start to fini
 
 - **Transitions.** Can every state transition actually happen? Can any happen twice?
 - **Reach of cancel and close.** Does a cancel, close or supersede reach only what it should, or does closing one item cancel its siblings' work?
-- **Caches.** Do they expire when the thing they cache expires, such as a token's own expiry?
+- **Caches.** Do they expire when the thing they cache expires, such as a token's own expiry? Does an explicit user retry (Start, Refresh) refresh a cached "no" before refusing, or does the user who just fixed the cause get refused until the TTL lapses?
 - **Command sequences.** Does a command still work after another command ran on the same version, for example skip then run?
 - **Gates.** Does every gate that closes have a path that reopens it?
 - **Inputs.** Are options and arguments honored, or accepted and ignored?
 
 These are the feature's own bugs. No cross-cutting checklist owns them, and they are what the author most needs to hear.
+
+### Line by line: questions for every changed hunk
+
+Flow-level reading catches wrong intent. These questions catch code that looks right and breaks on timing, on input shape or on a branch nobody tried. Ask each one wherever it applies in a changed hunk. Most hunks trigger two or three.
+
+- **Every `await`, callback or timer.** What did the code read before it, and does it act on that after it? Tasks get deleted, retries get cleared, sessions get replaced, and the user clicks again, all while the await is pending. Re-read live state after the await, and re-check ownership or currency before **each** side effect, not just the last one. An `await` newly added to a function that used to be synchronous deserves the closest look. The old check-then-act was atomic, and callers still assume it is.
+- **Every async result written to shared state** (a cache, a store, component state). Can an older call finish after a newer one and overwrite it? Look for a per-key generation, a request id or an abort.
+- **Every queue, mutex or single-flight.** Is it scoped to the resource (module-level, keyed by row or preference) or to one caller (a class instance, a hook's `useRef`)? A per-caller queue doesn't order two mounts or two clients writing the same thing.
+- **Every acquire** (a token, lock, lease, listener, timer, slot). Is it released on every exit path, including early returns and throws? Is it held exactly as long as its user runs? Releasing it when a phase ends while a poller still runs is the subtle version.
+- **Every catch, rollback or revert.** Does it restore the last *confirmed* state, or just invert the attempt? After two quick changes where only the second fails, inverting shows a value that was never stored.
+- **Every regex, `slice(-N)`, scan window, buffer or length cap.** Does it hold the largest input the feature says it supports? A 512-character code wraps across about seven 80-column rows. Walk the real input shapes: payload on the same line, alone on the next line, wrapped over N lines, split across two reads, cut off at the window edge. Then check the other side: does unrelated output in the window still stop a false match?
+- **Every identity, fingerprint or dedupe key.** Can two different things share it? Two Yes/No dialogs asking different questions have the same choice labels. Can one thing produce two keys, because the key includes a cursor position, a timestamp or other render state?
+- **Every branch with a side effect** (accept, reject, cancel, default, error). Does each one pass the same guard? The reject or cancel branch feels harmless, so it's the one that skips the identity check. That is also where a doc's "always verifies" claim stops being true.
+- **Every input transform at the edge** (a trim, sanitize or normalize in a keystroke handler or request parser). Does the canonical path still see what the user gave? Transforming in two places means the validator checks a different value from the one the user typed.
+
+Report what these turn up as ordinary findings, with a scenario. A question that has no concrete failure in this code is not a finding.
 
 ### Wired, not just written
 
@@ -180,6 +211,7 @@ Check each claim from §2 against the code at head.
 - "<N> tests pass": what did the run actually report?
 - "Every metric has an emitter": grep it.
 - A commit message describing a small fix on a diff that touches dozens of files.
+- A security or architecture doc that says a route "only acts on the live dialog" or "always checks X": check the guarantee on every branch of that handler, reject and cancel included, not just the main one.
 
 An unbacked claim about security, data, or the main output is a must-fix, or a blocker when the gap is large. A stale count or doc is a should-fix.
 
@@ -197,7 +229,7 @@ An unbacked claim about security, data, or the main output is a must-fix, or a b
   - have a marker in content they control treated as identity (check the actor, not the string).
 - **Authorization gaps.** Destructive operations need ownership checks. When a new privileged action is added, check that it's on the role allowlist.
 - **Pre-auth surface and fail-closed config.** Check payload, connection and handshake limits before authentication. Security settings must not be optional in production. Placeholder secrets (`CHANGE_ME`) must not be accepted. Compares must be constant-time. A kill switch must act as a ceiling and not be overridable from the runtime.
-- **Information disclosure.** Error bodies shouldn't leak stack traces or internal URLs. Secrets shouldn't appear in argv, URLs, logs or stored payloads.
+- **Information disclosure.** Error bodies shouldn't leak stack traces or internal URLs. Secrets shouldn't appear in argv, URLs, logs or stored payloads. When the change brings a **new secret into an existing stream**, every existing consumer of that stream is in scope, including code outside the diff. One example is an OAuth code typed into a terminal whose output already feeds logs, watchdog excerpts and status lines. The author usually redacts the one sink they were looking at. Check that the redactor matches every shape the secret takes there: on the marker's line, on the next line, wrapped, or split.
 - **Atomicity.** Security-critical transitions (OAuth state consumption, lock claims) need to be atomic, not read-then-write.
 - **Timeouts and retry safety.** External calls need explicit timeouts. Non-idempotent operations retry only on connection-level errors.
 - **Multi-step flow completeness and orphaned state.** Every redirect destination needs a handler, and every temporary token needs a consumer. Early durable state must roll back when a later step fails.
@@ -208,7 +240,7 @@ Full checklist: `references/trust-boundaries.md`.
 
 ### Reliability & the real deployment shape
 
-Ask what happens with two instances, during a rolling deploy, on a crash between two steps, and during a dependency outage:
+Ask what happens with two instances, during a rolling deploy, on a crash between two steps, and during a dependency outage. Also ask what happens inside **one** process when other code runs during an `await` (see *Line by line* above):
 
 - **Ownership on broadcasts.** A broadcast (pub/sub, NOTIFY, an event) is handled by every instance. Does each one check that it owns the socket, lease or lock before acting?
 - **Module-level state treated as global truth.**
@@ -265,7 +297,8 @@ Watch for these:
 - graceful close standing in for a crash;
 - helpers that silently `return` when the database is missing;
 - sleep-then-assert-nothing;
-- global mutation of shared rows.
+- global mutation of shared rows;
+- fixtures smaller than the case they name: a "~450-character path across several rows" fixture that wraps once. Measure it.
 
 Also check that every variant of a new union or kind passes through at least one test.
 
@@ -399,6 +432,7 @@ Review progress:
 - [ ] Gates run (wiring, hygiene); every lead confirmed or dropped
 - [ ] Earlier review scored (re-reviews only)
 - [ ] All changed files reviewed (dimension passes: …; correctness passes: …)
+- [ ] Every changed hunk asked the *Line by line* questions (awaits, out-of-order writes, queue scope, releases, rollbacks, windows, keys, branches, input transforms)
 - [ ] Wiring checked (new exports → production callers; objective outputs → production path)
 - [ ] Claims audited against the code at head
 - [ ] Security & trust boundaries swept

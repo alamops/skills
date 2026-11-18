@@ -26,6 +26,7 @@ For headline tests (the ones a PR claim or a fix rests on), check it directly. R
 | Too-loose matcher | `/^relay-/` matches both instances' ids | Assert the specific id |
 | Asserts on source text | Greps a source file for a string | Test behavior through the public surface |
 | Tests a fake | A fake DB that substring-matches SQL text and returns canned rows, with assertions on the SQL string. "Releases the reservation when setup fails" passes even if the UPDATE targets the wrong row | Run against the real database when CI has one, and assert on rows |
+| Fixture smaller than the case it names | A fixture commented "a ~450-character path that wraps across several rows" holds a 120-character path that wraps once, so the multi-row reassembly it claims to cover never runs | Count it: measure the fixture against the case in its name or comment, and make it reach the boundary it names |
 | No-op collaborators | The property test passes `schedule: () => {}`, so nothing it claims to explore ever runs | Use the real scheduler, or a recording one, and assert what it did |
 
 ## Tests that pass without running
