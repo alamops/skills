@@ -72,6 +72,7 @@ Collect claims from the PR body, the plan's completeness ledger, generated repor
 | A ledger row marked done | Find the code and the test. |
 | "One helper for X" | Count the copies. |
 | A commit message that describes its content | Compare `git show --stat` against the message. A "small fix" that touches dozens of files and thousands of lines is a claim that doesn't hold. |
+| A doc that states a guarantee for a route or operation ("the answer route only acts on the live dialog", "every write is audited") | Open the handler and check the guarantee on **every branch** that has a side effect: accept, reject, cancel, default, error. The doc is usually written from the main branch. A reject or cancel branch that sends a key, writes a row or releases a lock without the same check makes the doc false. |
 
 An unbacked claim about security, data integrity, or the main output is a must-fix. If the gap is large, it's a blocker. Stale counts and outdated doc lines are should-fix, grouped together.
 

@@ -12,6 +12,7 @@ Before reading the code, establish the **deployment shape** from the infra, the 
 If it isn't written down anywhere, that's a question for the author, and several findings below depend on the answer.
 
 ## Contents
+- Async interleaving in one process
 - Multiple instances and rolling deploys
 - Transactions and locks
 - Connection pools
@@ -21,6 +22,18 @@ If it isn't written down anywhere, that's a question for the author, and several
 - Time, ordering and caching
 - Schema and migrations
 - Health checks and capacity
+
+## Async interleaving in one process
+
+One process with one event loop still has races. Every `await`, callback, timer or promise continuation is a point where other code runs and changes state. Those races don't need a second instance, and single-process tests rarely catch them, because the fake resolves at once and nothing else runs in between. Read each changed async function with this in mind:
+
+- **Check, await, act.** The code reads state (the task's status, a held flag, "is this session still current", the member list), then awaits something slow (a probe, a capture, a network call), then acts on what it read. By then the task may be deleted, the retry already cleared, the session replaced, the stack edited. Re-read the live state after the await, and re-run the guard before each side effect, not only before the last one. A side effect is anything that's hard to take back: a key sent to a terminal, a write, a timer armed, a message sent.
+- **An `await` added to a function that used to be synchronous.** Its old check-then-act was atomic because nothing could run between the check and the act. The new `await` splits it, and the callers' assumptions still say "atomic". Treat every newly inserted `await` in an existing function as a review target: list what was read above it and used below it.
+- **Out-of-order completion.** Two calls for the same key are in flight (two probes, two fetches, a load and a save), and the older one finishes last and overwrites the newer result in a cache, a store or component state. Fix with a per-key generation counter or request id checked at write-back, or by aborting the older call. Keep in-order writes working.
+- **Serialization at the wrong scope.** A queue, mutex or single-flight that lives on one caller (a class instance, a React hook's `useRef`, a closure) serializes only that caller. Two mounts of the same component, two instances of a client, or two routes that share a resource each get their own queue, so their writes interleave and an older write can land last. The queue must be keyed by the resource: a module-level map keyed by the preference, row or session.
+- **A load that lands after a newer edit.** A component starts a load on mount, the user changes the value, then the load resolves and overwrites the user's choice with the stored one. Track whether the value changed after the load began, not only whether it changed at all.
+- **Rollback to the wrong value.** An optimistic update that fails must restore the last value the server confirmed, not the inverse of the attempted value or the value from before this one attempt. After two quick toggles where only the second fails, "undo the attempt" leaves the UI showing a value that was never stored. Track a confirmed value and advance it only when a write succeeds.
+- **Held for the wrong lifetime.** A token, lease, slot or lock is released when one phase ends (the boot wait finishes) while the thing that needs it (the poller) keeps running. Release it where its user exits, and on every exit path: early returns, throws, cancellation. A `try/finally` around the user's whole lifetime is the usual fix. A flag that "most exits set" is not a release on every exit.
 
 ## Multiple instances and rolling deploys
 
@@ -87,6 +100,7 @@ If it isn't written down anywhere, that's a question for the author, and several
 - **Mixed clocks.** Comparing a database-written timestamp with the application's clock. Pick one clock.
 - **Ordering without a tiebreaker.** `order by priority, created_at` with no unique tiebreaker, when rows inserted in one statement share `now()`.
 - **Caches that never expire.** A cache with no TTL and no size bound, where a key already present is never re-fetched. One transient 502 gets cached as "behind" for the life of the process. Don't cache errors, and give the cache a TTL.
+- **A cached "no" on an explicit retry.** A user-initiated action (Start, Retry, Refresh, Reconnect) refuses because a cached answer says the precondition fails: logged out, quota exhausted, offline. The user who just fixed the cause and pressed the button again is refused until the TTL lapses. Background planning may use the cache. A refusal on an explicit user action should refresh first.
 - **Stamping time before the read.** See trust-boundaries.md.
 - **DST and timezones** in schedules and windows.
 - **Unbounded growth.** Caches, temp directories, local mirrors and logs that grow with every job and are never pruned fill the disk on a long-running instance.

@@ -91,6 +91,8 @@ For any endpoint reachable before authentication (WebSocket upgrade, webhook rec
 ## Secrets handling
 
 - **Exposure points.** Look for secrets in argv (visible in `ps`), in URLs, in stored job payloads, in committed variable files, and in log lines. Check log redaction depth and keys: nested `access_token`, `client_secret`, `set-cookie`, `signature`, sealed blobs.
+- **A new secret in an old stream.** When the change puts a secret into a stream that already exists, every existing consumer of that stream is now in scope, including code the diff didn't touch. Examples: an OAuth code typed into a terminal pane, a token added to a response body, a password in a form the app already autosaves. List every sink that reads the stream: logs, watchdog or debug excerpts, status lines, error messages, telemetry, transcripts, crash reports, caches. The change usually redacts the one sink its author was looking at. Each unredacted sink is a finding, anchored where the excerpt is built.
+- **Redaction that matches only the tidy shape.** A redactor that looks for `marker + secret` on one line misses the secret when it sits alone on the next line, wraps across several rows, arrives split across two chunks, or is truncated at a buffer edge. Enumerate the shapes the secret can take in that stream and check each against the pattern. Ask for a test per shape.
 - **Child processes.** `spawn(cmd, args, { env: process.env })` hands every secret to the child. Pass an explicit allowlist.
 - **Key derivation.** A plain hash of a passphrase, with no length check, is not a KDF.
 - **Error responses.** Default error handlers that return internal messages to clients.
